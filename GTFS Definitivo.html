@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Horarios RED — GTFS Viewer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--red:#AF2B1E;--bg:#f2f2f0;--card:#fff;--border:rgba(0,0,0,0.09);--text:#1a1a1a;--muted:#666;--radius:10px;--rsm:6px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:15px;min-height:100vh}
+header{background:var(--red);color:#fff;padding:13px 24px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:200}
+header h1{font-size:17px;font-weight:600;flex:1}
+#btn-reload{background:rgba(255,255,255,.18);border:none;color:#fff;padding:6px 13px;border-radius:var(--rsm);font-size:13px;cursor:pointer}
+#btn-reload:hover{background:rgba(255,255,255,.28)}
+#upload-section{max-width:520px;margin:48px auto;padding:0 16px}
+.upload-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:48px 24px;text-align:center;background:var(--card);cursor:pointer;transition:border-color .2s}
+.upload-zone:hover,.upload-zone.drag{border-color:var(--red)}
+.upload-icon{font-size:44px;margin-bottom:14px}
+.upload-zone h2{font-size:17px;margin-bottom:6px}
+.upload-zone p{color:var(--muted);font-size:14px}
+#file-input{display:none}
+.btn-upload{display:inline-block;margin-top:16px;padding:10px 24px;background:var(--red);color:#fff;border-radius:var(--rsm);font-size:14px;font-weight:500;cursor:pointer;border:none}
+.progress-bar{height:4px;background:#e0e0e0;border-radius:2px;overflow:hidden;margin-top:20px}
+.progress-fill{height:100%;background:var(--red);width:0%;transition:width .3s}
+.progress-label{font-size:13px;color:var(--muted);margin-top:8px;text-align:center}
+#app{display:none;max-width:1200px;margin:0 auto;padding:20px 16px 48px}
+.tabs{display:flex;margin-bottom:20px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;width:fit-content}
+.tab-btn{padding:10px 24px;border:none;background:transparent;font-size:14px;font-weight:500;color:var(--muted);cursor:pointer;border-right:1px solid var(--border)}
+.tab-btn:last-child{border-right:none}
+.tab-btn.active{background:var(--red);color:#fff}
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:18px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:13px 15px}
+.stat-card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.stat-card .val{font-size:21px;font-weight:600}
+.filters{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.fg{display:flex;flex-direction:column;gap:5px}
+.fg label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+select,input[type=text]{padding:8px 10px;border:1px solid var(--border);border-radius:var(--rsm);font-size:14px;background:#fff;color:var(--text);outline:none;-webkit-appearance:none}
+select:focus,input:focus{border-color:var(--red)}
+.search-wrap{position:relative;flex:1;min-width:220px}
+.search-wrap input{width:100%;padding-left:32px}
+.search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:15px;pointer-events:none}
+.suggestions{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:var(--rsm);z-index:300;max-height:220px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.1)}
+.sug-item{padding:9px 12px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border)}
+.sug-item:last-child{border-bottom:none}
+.sug-item:hover{background:var(--bg)}
+.sug-item small{color:var(--muted);font-size:12px;display:block}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.card-title{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px}
+.grid2{display:grid;grid-template-columns:1fr 1.8fr;gap:14px;margin-bottom:14px}
+@media(max-width:800px){.grid2{grid-template-columns:1fr}}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+thead th{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+tbody td{padding:9px 10px;border-bottom:1px solid var(--border)}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:#fafafa}
+.freq-pill{display:inline-block;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:600}
+.fg-good{background:#e8f5e9;color:#2e7d32}
+.fg-mid{background:#fff8e1;color:#e65100}
+.fg-low{background:#fce4ec;color:#c62828}
+.route-badge{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:26px;padding:0 8px;border-radius:5px;font-size:12px;font-weight:700}
+.hour-filter{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:14px;flex-wrap:wrap}
+.hour-filter label{font-size:12px;color:var(--muted);white-space:nowrap}
+.hour-filter input[type=range]{flex:1;min-width:120px}
+.hour-val{font-size:15px;font-weight:600;min-width:55px;text-align:center}
+.all-btn{padding:5px 12px;border:1px solid var(--border);border-radius:var(--rsm);font-size:13px;cursor:pointer;background:#fff;color:var(--text)}
+.all-btn.active{background:var(--red);color:#fff;border-color:var(--red)}
+.chart-wrap{height:220px}
+.stop-header{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px;display:flex;align-items:flex-start;gap:14px}
+.stop-pin{width:42px;height:42px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff;font-size:20px}
+.stop-name-big{font-size:17px;font-weight:600;margin-bottom:3px}
+.stop-id-small{font-size:12px;color:var(--muted)}
+.no-data{text-align:center;padding:36px;color:var(--muted);font-size:14px}
+.hint{color:var(--muted);font-size:13px;text-align:center;padding:32px}
+/* MAP */
+#map{height:460px;border-radius:var(--radius);border:1px solid var(--border);margin-bottom:14px;z-index:1}
+.map-legend{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 14px;background:var(--card);border:1px solid var(--border);border-radius:var(--rsm);margin-bottom:14px;font-size:13px}
+.legend-item{display:flex;align-items:center;gap:6px}
+.legend-line{width:24px;height:4px;border-radius:2px}
+.legend-dot{width:10px;height:10px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.2)}
+.map-dir-tabs{display:flex;gap:8px;margin-bottom:10px}
+.map-dir-btn{padding:6px 14px;border:1px solid var(--border);border-radius:var(--rsm);font-size:13px;font-weight:500;cursor:pointer;background:#fff;color:var(--text);transition:all .15s}
+.map-dir-btn.active{background:var(--red);color:#fff;border-color:var(--red)}
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+    <rect width="26" height="26" rx="6" fill="rgba(255,255,255,0.2)"/>
+    <path d="M5 19l4-11h8l4 11" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M7 14h12" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+  <h1>GTFS Viewer — RED Movilidad</h1>
+  <button id="btn-reload" style="display:none" onclick="location.reload()">Cargar otro GTFS</button>
+</header>
+
+<div id="upload-section">
+  <div class="upload-zone" id="dropzone">
+    <div class="upload-icon">&#128230;</div>
+    <h2>Carga tu archivo GTFS</h2>
+    <p>Arrastra el .zip aqui o haz clic para seleccionarlo</p>
+    <input type="file" id="file-input" accept=".zip">
+    <label for="file-input" class="btn-upload">Seleccionar archivo</label>
+    <div class="progress-bar" id="prog-bar" style="display:none"><div class="progress-fill" id="prog-fill"></div></div>
+    <div class="progress-label" id="prog-label"></div>
+  </div>
+</div>
+
+<div id="app">
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('ruta')">Por Ruta</button>
+    <button class="tab-btn" onclick="switchTab('paradero')">Por Paradero</button>
+  </div>
+
+  <!-- TAB RUTA -->
+  <div id="tab-ruta">
+    <div class="stats-row" id="stats-row"></div>
+    <div class="filters">
+      <div class="fg" style="min-width:220px">
+        <label>Ruta</label>
+        <select id="sel-route"></select>
+      </div>
+      <div class="fg">
+        <label>Tipo de dia</label>
+        <select id="sel-service"></select>
+      </div>
+    </div>
+
+    <!-- MAPA -->
+    <div class="card" style="margin-bottom:14px;padding:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div class="card-title" style="margin-bottom:0">Mapa del recorrido</div>
+        <div class="map-dir-tabs">
+          <button class="map-dir-btn active" id="map-btn-0" onclick="setMapDir(0)">Ida</button>
+          <button class="map-dir-btn" id="map-btn-1" onclick="setMapDir(1)">Regreso</button>
+          <button class="map-dir-btn" id="map-btn-both" onclick="setMapDir(-1)">Ambas</button>
+        </div>
+      </div>
+      <div class="map-legend">
+        <div class="legend-item"><div class="legend-line" style="background:#2563eb"></div><span>Ida</span></div>
+        <div class="legend-item"><div class="legend-line" style="background:#dc2626"></div><span>Regreso</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:#1d4ed8"></div><span>Parada</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:#16a34a"></div><span>Inicio</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:#dc2626"></div><span>Fin</span></div>
+        <span id="map-stop-count" style="margin-left:auto;color:var(--muted);font-size:12px"></span>
+      </div>
+      <div id="map"></div>
+    </div>
+
+    <!-- FRECUENCIAS -->
+    <div class="grid2">
+      <div class="card">
+        <div class="card-title">Franjas horarias — ida y regreso</div>
+        <div id="freq-table-wrap"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Frecuencia por hora — 24h (min entre buses)</div>
+        <div class="chart-wrap"><canvas id="freq-chart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Paradas del recorrido</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button class="map-dir-btn active" id="stops-btn-0" onclick="setStopsDir(0)">Ida</button>
+        <button class="map-dir-btn" id="stops-btn-1" onclick="setStopsDir(1)">Regreso</button>
+      </div>
+      <div id="stops-table-wrap"></div>
+    </div>
+  </div>
+
+  <!-- TAB PARADERO -->
+  <div id="tab-paradero" style="display:none">
+    <div class="filters">
+      <div class="fg">
+        <label>Tipo de dia</label>
+        <select id="sel-service-stop"></select>
+      </div>
+      <div class="fg" style="flex:1;min-width:220px">
+        <label>Buscar paradero</label>
+        <div class="search-wrap">
+          <span class="search-icon">&#128269;</span>
+          <input type="text" id="stop-search" placeholder="Ej: Baquedano, PD1641, Macul..." autocomplete="off">
+          <div class="suggestions" id="suggestions" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="stop-detail" style="display:none">
+      <div class="stop-header" id="stop-header-info"></div>
+      <div class="hour-filter">
+        <label>Filtrar por hora:</label>
+        <button class="all-btn active" id="btn-all-hours" onclick="setAllHours()">Todas</button>
+        <input type="range" id="hour-slider" min="0" max="23" value="8" step="1" oninput="onHourSlide(this.value)">
+        <div class="hour-val" id="hour-val">Todas</div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <div class="card-title">Recorridos que paran aqui</div>
+          <div id="routes-at-stop-wrap"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Buses por hora — 24h</div>
+          <div class="chart-wrap"><canvas id="stop-chart"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title" id="arrivals-title">Llegadas</div>
+        <div id="arrivals-wrap"></div>
+      </div>
+    </div>
+    <div id="stop-hint" class="hint">Escribe el nombre o codigo de un paradero para comenzar</div>
+  </div>
+</div>
+
+<script>
+var SVC = {L:'Lunes a Viernes', S:'Sabado', D:'Domingo', F:'Festivo', LJ:'Lun a Jue', V:'Viernes'};
+var DATA = {routes:{}, trips:{}, frequencies:[], stopTimes:{}, stops:{}, stopIndex:{}, stopTrips:{}, shapes:{}};
+var freqChart = null, stopChart = null;
+var leafMap = null, layerIda = null, layerReg = null, layerStops = null;
+var activeStop = null, allHours = true, selectedHour = 8;
+var curMapDir = 0, curStopsDir = 0;
+var _cachedArrivals = [];
+
+var dropzone = document.getElementById('dropzone');
+var fileInput = document.getElementById('file-input');
+dropzone.addEventListener('dragover', function(e){ e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', function(){ dropzone.classList.remove('drag'); });
+dropzone.addEventListener('drop', function(e){ e.preventDefault(); dropzone.classList.remove('drag'); handleFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', function(e){ handleFile(e.target.files[0]); });
+
+function prog(pct, txt){
+  document.getElementById('prog-bar').style.display = 'block';
+  document.getElementById('prog-fill').style.width = pct + '%';
+  document.getElementById('prog-label').textContent = txt;
+}
+
+function timeToSecs(t){
+  if(!t) return 0;
+  var p = t.split(':');
+  return parseInt(p[0])*3600 + parseInt(p[1])*60 + (parseInt(p[2])||0);
+}
+function secsToTime(s){
+  var h = Math.floor(Math.abs(s)/3600) % 24;
+  var m = Math.floor((Math.abs(s) % 3600)/60);
+  return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+}
+function cleanName(n){ return (n||'').replace(/^[A-Z0-9]+-/, '').trim(); }
+function freqClass(m){ return m<=12?'fg-good':m<=20?'fg-mid':'fg-low'; }
+function rColor(r){ return r ? '#'+(r.route_color||'AF2B1E') : '#AF2B1E'; }
+function rText(r){ return r ? '#'+(r.route_text_color||'FFFFFF') : '#fff'; }
+
+async function handleFile(file){
+  if(!file) return;
+  prog(5, 'Descomprimiendo .zip...');
+  var zip = await JSZip.loadAsync(file);
+  async function readTxt(name){ var f=zip.file(name); return f?await f.async('string'):''; }
+  function parse(txt){ return Papa.parse(txt.trim(),{header:true,skipEmptyLines:true,dynamicTyping:true}).data; }
+
+  prog(12, 'Leyendo routes.txt...');
+  parse(await readTxt('routes.txt')).forEach(function(r){ DATA.routes[r.route_id]=r; });
+
+  prog(22, 'Leyendo trips.txt...');
+  parse(await readTxt('trips.txt')).forEach(function(t){ DATA.trips[t.trip_id]=t; });
+
+  prog(33, 'Leyendo frequencies.txt...');
+  DATA.frequencies = parse(await readTxt('frequencies.txt'));
+
+  prog(43, 'Leyendo stops.txt...');
+  parse(await readTxt('stops.txt')).forEach(function(s){
+    DATA.stops[s.stop_id] = s;
+    var name = cleanName(s.stop_name||s.stop_id);
+    DATA.stopIndex[s.stop_id] = {name:name, key:(name+' '+s.stop_id).toLowerCase(), s:s};
+  });
+
+  prog(53, 'Leyendo shapes.txt (puede tardar)...');
+  parse(await readTxt('shapes.txt')).forEach(function(row){
+    if(!DATA.shapes[row.shape_id]) DATA.shapes[row.shape_id]=[];
+    DATA.shapes[row.shape_id].push({lat:parseFloat(row.shape_pt_lat), lng:parseFloat(row.shape_pt_lon), seq:row.shape_pt_sequence});
+  });
+  Object.keys(DATA.shapes).forEach(function(sid){
+    DATA.shapes[sid].sort(function(a,b){return a.seq-b.seq;});
+  });
+
+  prog(65, 'Leyendo stop_times.txt...');
+  var stRows = parse(await readTxt('stop_times.txt'));
+
+  prog(85, 'Construyendo indices...');
+  stRows.forEach(function(row){
+    if(!DATA.stopTimes[row.trip_id]) DATA.stopTimes[row.trip_id]=[];
+    DATA.stopTimes[row.trip_id].push(row);
+    if(!DATA.stopTrips[row.stop_id]) DATA.stopTrips[row.stop_id]=[];
+    DATA.stopTrips[row.stop_id].push({
+      trip_id:row.trip_id, seq:row.stop_sequence,
+      offset:timeToSecs(row.departure_time||row.arrival_time||'0:00:00')
+    });
+  });
+
+  prog(100, 'Listo!');
+  setTimeout(function(){
+    document.getElementById('upload-section').style.display='none';
+    document.getElementById('btn-reload').style.display='block';
+    buildUI();
+    document.getElementById('app').style.display='block';
+    initMap();
+  }, 300);
+}
+
+function buildUI(){
+  var nR=Object.keys(DATA.routes).length;
+  var nT=Object.keys(DATA.trips).length;
+  var nS=Object.keys(DATA.stops).length;
+  var avgF=Math.round(DATA.frequencies.reduce(function(a,f){return a+f.headway_secs;},0)/DATA.frequencies.length/60);
+  document.getElementById('stats-row').innerHTML=[
+    ['Rutas',nR],['Viajes',nT.toLocaleString()],['Paradas',nS.toLocaleString()],['Frec. prom.',avgF+' min']
+  ].map(function(x){return '<div class="stat-card"><div class="lbl">'+x[0]+'</div><div class="val">'+x[1]+'</div></div>';}).join('');
+
+  var selR=document.getElementById('sel-route');
+  Object.values(DATA.routes)
+    .sort(function(a,b){return String(a.route_short_name).localeCompare(String(b.route_short_name),undefined,{numeric:true});})
+    .forEach(function(r){
+      var o=document.createElement('option');
+      o.value=r.route_id;
+      o.textContent=r.route_short_name+' — '+r.route_long_name;
+      selR.appendChild(o);
+    });
+
+  var services=[];
+  Object.values(DATA.trips).forEach(function(t){if(services.indexOf(t.service_id)===-1)services.push(t.service_id);});
+  services.sort();
+  ['sel-service','sel-service-stop'].forEach(function(id){
+    var sel=document.getElementById(id);
+    services.forEach(function(s){
+      var o=document.createElement('option');o.value=s;o.textContent=SVC[s]||s;sel.appendChild(o);
+    });
+  });
+
+  selR.addEventListener('change', renderAll);
+  document.getElementById('sel-service').addEventListener('change', renderAll);
+  document.getElementById('sel-service-stop').addEventListener('change', function(){ if(activeStop) renderStop(activeStop); });
+  setupStopSearch();
+  renderAll();
+}
+
+function switchTab(tab){
+  document.querySelectorAll('.tab-btn').forEach(function(b,i){b.classList.toggle('active',['ruta','paradero'][i]===tab);});
+  document.getElementById('tab-ruta').style.display=tab==='ruta'?'block':'none';
+  document.getElementById('tab-paradero').style.display=tab==='paradero'?'block':'none';
+  if(tab==='ruta' && leafMap) setTimeout(function(){leafMap.invalidateSize();},50);
+}
+
+/* ── MAP ── */
+function initMap(){
+  leafMap = L.map('map').setView([-33.45, -70.65], 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'&copy; OpenStreetMap contributors', maxZoom:18
+  }).addTo(leafMap);
+}
+
+function setMapDir(dir){
+  curMapDir = dir;
+  ['0','1','both'].forEach(function(d){
+    document.getElementById('map-btn-'+d).classList.toggle('active', String(dir)===(d==='both'?'-1':d));
+  });
+  renderMap();
+}
+
+function renderMap(){
+  if(!leafMap) return;
+  if(layerIda)   { leafMap.removeLayer(layerIda);   layerIda=null; }
+  if(layerReg)   { leafMap.removeLayer(layerReg);   layerReg=null; }
+  if(layerStops) { leafMap.removeLayer(layerStops); layerStops=null; }
+
+  var routeId = document.getElementById('sel-route').value;
+  var svcId   = document.getElementById('sel-service').value;
+  var route   = DATA.routes[routeId];
+  var bounds  = [];
+
+  var stopGroup = L.layerGroup();
+  var stopSet   = {};
+
+  function drawDir(dir, color){
+    var trips = Object.values(DATA.trips).filter(function(t){
+      return String(t.route_id)===String(routeId) && t.service_id===svcId && t.direction_id===dir;
+    });
+    if(!trips.length) return;
+
+    var shapeId = trips[0].shape_id;
+    var pts     = DATA.shapes[shapeId];
+    if(!pts||!pts.length) return;
+
+    var latlngs = pts.map(function(p){return [p.lat,p.lng];});
+    var poly    = L.polyline(latlngs,{color:color,weight:4,opacity:0.85});
+    if(dir===0||curMapDir===-1){ layerIda=(dir===0?poly:layerIda); }
+    if(dir===1||curMapDir===-1){ layerReg=(dir===1?poly:layerReg); }
+    poly.addTo(leafMap);
+    bounds = bounds.concat(latlngs);
+
+    var refTrip  = trips[0];
+    var stopSeq  = DATA.stopTimes[refTrip.trip_id]||[];
+    var n        = stopSeq.length;
+
+    stopSeq.forEach(function(st,i){
+      if(stopSet[st.stop_id]) return;
+      stopSet[st.stop_id]=true;
+      var stop = DATA.stops[st.stop_id];
+      if(!stop||!stop.stop_lat) return;
+      var isFirst = (i===0), isLast = (i===n-1);
+      var dotColor = isFirst?'#16a34a':isLast?'#dc2626':'#1d4ed8';
+      var radius   = isFirst||isLast?9:5;
+      var sName    = cleanName(stop.stop_name||st.stop_id);
+      L.circleMarker([+stop.stop_lat,+stop.stop_lon],{
+        radius:radius, fillColor:dotColor, color:'#fff',
+        weight:2, opacity:1, fillOpacity:1
+      }).bindPopup('<b>'+sName+'</b><br><small>'+st.stop_id+'</small>').addTo(stopGroup);
+    });
+  }
+
+  if(curMapDir===0||curMapDir===-1) drawDir(0,'#2563eb');
+  if(curMapDir===1||curMapDir===-1) drawDir(1,'#dc2626');
+
+  layerStops = stopGroup;
+  stopGroup.addTo(leafMap);
+
+  var totalStops = Object.keys(stopSet).length;
+  document.getElementById('map-stop-count').textContent = totalStops ? totalStops+' paradas' : '';
+
+  if(bounds.length) leafMap.fitBounds(bounds,{padding:[20,20]});
+}
+
+/* ── RENDER ALL (ruta tab) ── */
+function renderAll(){
+  renderFreqs();
+  renderMap();
+  renderStopsTable();
+}
+
+function getTrips(dir){
+  var routeId=document.getElementById('sel-route').value;
+  var svcId=document.getElementById('sel-service').value;
+  return Object.values(DATA.trips).filter(function(t){
+    return String(t.route_id)===String(routeId)&&t.service_id===svcId&&(dir===-1||t.direction_id===dir);
+  });
+}
+
+function renderFreqs(){
+  var tripsIda = getTrips(0);
+  var tripsReg = getTrips(1);
+  var idsIda={}, idsReg={};
+  tripsIda.forEach(function(t){idsIda[t.trip_id]=true;});
+  tripsReg.forEach(function(t){idsReg[t.trip_id]=true;});
+  var freqsIda = DATA.frequencies.filter(function(f){return idsIda[f.trip_id];});
+  var freqsReg = DATA.frequencies.filter(function(f){return idsReg[f.trip_id];});
+
+  renderFreqTable(freqsIda, freqsReg);
+  renderFreqChart(freqsIda, freqsReg);
+}
+
+function renderFreqTable(freqsIda, freqsReg){
+  var w=document.getElementById('freq-table-wrap');
+  var all = {};
+  function absorb(arr, key){
+    arr.forEach(function(f){
+      var k=f.start_time+'|'+f.end_time;
+      if(!all[k]) all[k]={start:f.start_time.slice(0,5),end:f.end_time.slice(0,5)};
+      all[k][key]=Math.round(f.headway_secs/60);
+    });
+  }
+  absorb(freqsIda,'ida');
+  absorb(freqsReg,'reg');
+  var rows=Object.values(all).map(function(r){
+    var ida=r.ida?'<span class="freq-pill '+freqClass(r.ida)+'">'+r.ida+' min</span>':'<span style="color:#ccc">—</span>';
+    var reg=r.reg?'<span class="freq-pill '+freqClass(r.reg)+'">'+r.reg+' min</span>':'<span style="color:#ccc">—</span>';
+    return '<tr><td>'+r.start+'</td><td>'+r.end+'</td><td>'+ida+'</td><td>'+reg+'</td></tr>';
+  }).join('');
+  w.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>Desde</th><th>Hasta</th><th>Ida</th><th>Regreso</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+
+function renderFreqChart(freqsIda, freqsReg){
+  var labels=[], valIda=[], valReg=[];
+  for(var h=0;h<24;h++){
+    labels.push(h+'h');
+    function avg(freqs){
+      var m=freqs.filter(function(f){var sh=parseInt(f.start_time.split(':')[0]),eh=parseInt(f.end_time.split(':')[0]);return sh<=h&&eh>h;});
+      return m.length?Math.round(m.reduce(function(a,f){return a+f.headway_secs;},0)/m.length/60):null;
+    }
+    valIda.push(avg(freqsIda));
+    valReg.push(avg(freqsReg));
+  }
+  var ctx=document.getElementById('freq-chart').getContext('2d');
+  if(freqChart) freqChart.destroy();
+  freqChart=new Chart(ctx,{
+    type:'bar',
+    data:{labels:labels,datasets:[
+      {label:'Ida',data:valIda,backgroundColor:'rgba(37,99,235,0.7)',borderRadius:3},
+      {label:'Regreso',data:valReg,backgroundColor:'rgba(220,38,38,0.65)',borderRadius:3}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'top',labels:{font:{size:12},boxWidth:14}}},
+      scales:{
+        y:{beginAtZero:true,title:{display:true,text:'min',font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}},
+        x:{grid:{display:false},ticks:{font:{size:10},maxRotation:0}}
+      }
+    }
+  });
+}
+
+function setStopsDir(dir){
+  curStopsDir=dir;
+  document.getElementById('stops-btn-0').classList.toggle('active',dir===0);
+  document.getElementById('stops-btn-1').classList.toggle('active',dir===1);
+  renderStopsTable();
+}
+
+function renderStopsTable(){
+  var w=document.getElementById('stops-table-wrap');
+  var trips=getTrips(curStopsDir);
+  if(!trips.length){w.innerHTML='<div class="no-data">Sin viajes para este filtro</div>';return;}
+  var refTrip=trips[0];
+  var stopSeq=DATA.stopTimes[refTrip.trip_id];
+  if(!stopSeq){w.innerHTML='<div class="no-data">Sin datos de paradas</div>';return;}
+  var freqs=DATA.frequencies.filter(function(f){return f.trip_id===refTrip.trip_id;});
+  var startSec=freqs.length?timeToSecs(freqs[0].start_time):0;
+  var lastFreq=freqs[freqs.length-1];
+  var endSec=lastFreq?timeToSecs(lastFreq.end_time):0;
+  var rows=stopSeq.slice(0,35).map(function(st){
+    var stop=DATA.stops[st.stop_id]||{};
+    var name=cleanName(stop.stop_name||st.stop_id);
+    var offset=timeToSecs(st.departure_time||st.arrival_time||'0:00:00');
+    return '<tr><td style="color:#999;font-size:12px">'+st.stop_sequence+'</td><td>'+name+'</td><td style="font-weight:500">'+secsToTime(startSec+offset)+'</td><td style="font-weight:500">'+secsToTime(endSec+offset)+'</td></tr>';
+  }).join('');
+  var more=stopSeq.length>35?'<tr><td colspan="4" style="text-align:center;color:#999;font-size:13px;padding:10px">... y '+(stopSeq.length-35)+' paradas mas</td></tr>':'';
+  w.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Parada</th><th>Primera salida</th><th>Ultima salida</th></tr></thead><tbody>'+rows+more+'</tbody></table></div>';
+}
+
+/* ── PARADERO TAB ── */
+function setupStopSearch(){
+  var inp=document.getElementById('stop-search');
+  var sug=document.getElementById('suggestions');
+  inp.addEventListener('input',function(){
+    var q=inp.value.trim().toLowerCase();
+    if(q.length<2){sug.style.display='none';return;}
+    var results=Object.values(DATA.stopIndex).filter(function(s){return s.key.indexOf(q)!==-1;}).slice(0,14);
+    if(!results.length){sug.style.display='none';return;}
+    sug.innerHTML=results.map(function(s){
+      return '<div class="sug-item" onclick="selectStop(\''+s.s.stop_id+'\')">'+s.name+'<small>'+s.s.stop_id+'</small></div>';
+    }).join('');
+    sug.style.display='block';
+  });
+  document.addEventListener('click',function(e){if(!e.target.closest('.search-wrap'))sug.style.display='none';});
+}
+
+function selectStop(stopId){
+  document.getElementById('suggestions').style.display='none';
+  var stop=DATA.stops[stopId];
+  if(!stop)return;
+  document.getElementById('stop-search').value=cleanName(stop.stop_name||stopId);
+  activeStop=stopId;
+  renderStop(stopId);
+  document.getElementById('stop-detail').style.display='block';
+  document.getElementById('stop-hint').style.display='none';
+}
+
+function computeArrivals(stopId, svcId){
+  var entries=(DATA.stopTrips[stopId]||[]).filter(function(e){
+    var trip=DATA.trips[e.trip_id];return trip&&trip.service_id===svcId;
+  });
+  var arrivals=[];
+  entries.forEach(function(e){
+    var trip=DATA.trips[e.trip_id];if(!trip)return;
+    var route=DATA.routes[trip.route_id];
+    var freqs=DATA.frequencies.filter(function(f){return f.trip_id===e.trip_id;});
+    freqs.forEach(function(f){
+      var startS=timeToSecs(f.start_time),endS=timeToSecs(f.end_time),hw=f.headway_secs;
+      if(hw<=0)return;
+      for(var t=startS+e.offset;t<endS+e.offset;t+=hw){
+        var h=Math.floor(t/3600);
+        if(h>=0&&h<=27){
+          arrivals.push({timeSecs:t,timeStr:secsToTime(t),hour:h%24,headsign:trip.trip_headsign||'—',route:route,routeShort:route?route.route_short_name:'?'});
+        }
+      }
+    });
+  });
+  arrivals.sort(function(a,b){return a.timeSecs-b.timeSecs;});
+  return arrivals;
+}
+
+function renderStop(stopId){
+  var stop=DATA.stops[stopId]||{};
+  var svcId=document.getElementById('sel-service-stop').value;
+  var name=cleanName(stop.stop_name||stopId);
+  document.getElementById('stop-header-info').innerHTML=
+    '<div class="stop-pin">&#128205;</div>'+
+    '<div><div class="stop-name-big">'+name+'</div><div class="stop-id-small">'+stopId+
+    (stop.stop_lat?' &nbsp;&middot;&nbsp; '+(+stop.stop_lat).toFixed(5)+', '+(+stop.stop_lon).toFixed(5):'')+
+    '</div></div>';
+
+  var entries=(DATA.stopTrips[stopId]||[]).filter(function(e){var t=DATA.trips[e.trip_id];return t&&t.service_id===svcId;});
+  if(!entries.length){
+    document.getElementById('routes-at-stop-wrap').innerHTML='<div class="no-data">Sin recorridos para este tipo de dia</div>';
+    document.getElementById('arrivals-wrap').innerHTML='<div class="no-data">Sin datos</div>';
+    renderStopChart([]);return;
+  }
+  var routeMap={};
+  entries.forEach(function(e){
+    var trip=DATA.trips[e.trip_id];if(!trip)return;
+    var rid=trip.route_id;
+    if(!routeMap[rid]) routeMap[rid]={route:DATA.routes[rid],headsigns:{},count:0};
+    routeMap[rid].count++;
+    if(trip.trip_headsign) routeMap[rid].headsigns[trip.trip_headsign]=true;
+  });
+  var routesSorted=Object.values(routeMap).sort(function(a,b){
+    return String(a.route?a.route.route_short_name:'').localeCompare(String(b.route?b.route.route_short_name:''),undefined,{numeric:true});
+  });
+  var tableRows=routesSorted.map(function(rm){
+    var r=rm.route,bg=rColor(r),tc=rText(r),hs=Object.keys(rm.headsigns).join(' / ')||'—';
+    return '<tr><td><span class="route-badge" style="background:'+bg+';color:'+tc+'">'+(r?r.route_short_name:'?')+'</span></td><td>'+hs+'</td><td>'+rm.count+'</td></tr>';
+  }).join('');
+  document.getElementById('routes-at-stop-wrap').innerHTML=
+    '<div class="tbl-wrap"><table><thead><tr><th>Ruta</th><th>Destino</th><th>Viajes/dia</th></tr></thead><tbody>'+tableRows+'</tbody></table></div>';
+
+  _cachedArrivals=computeArrivals(stopId,svcId);
+  renderStopChart(_cachedArrivals);
+  renderArrivals(_cachedArrivals);
+}
+
+function renderStopChart(arrivals){
+  var labels=[],values=[];
+  for(var h=0;h<24;h++){
+    labels.push(h+'h');
+    values.push(arrivals.filter(function(a){return a.hour===h;}).length);
+  }
+  var ctx=document.getElementById('stop-chart').getContext('2d');
+  if(stopChart) stopChart.destroy();
+  stopChart=new Chart(ctx,{
+    type:'bar',
+    data:{labels:labels,datasets:[{label:'Buses',data:values,backgroundColor:'rgba(85,153,221,0.8)',borderRadius:3}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        y:{beginAtZero:true,title:{display:true,text:'buses',font:{size:11}},ticks:{stepSize:1},grid:{color:'rgba(0,0,0,0.05)'}},
+        x:{grid:{display:false},ticks:{font:{size:10},maxRotation:0}}
+      }
+    }
+  });
+}
+
+function renderArrivals(arrivals){
+  var filtered=allHours?arrivals:arrivals.filter(function(a){return a.hour===selectedHour%24;});
+  document.getElementById('arrivals-title').textContent=allHours
+    ?'Todas las llegadas — '+arrivals.length+' buses/dia'
+    :'Llegadas a las '+(selectedHour%24)+':xx — '+filtered.length+' buses';
+  var w=document.getElementById('arrivals-wrap');
+  if(!filtered.length){w.innerHTML='<div class="no-data">Sin buses en este horario</div>';return;}
+  var show=filtered.slice(0,150);
+  var rows=show.map(function(a){
+    var bg=rColor(a.route),tc=rText(a.route);
+    return '<tr><td style="font-weight:600">'+a.timeStr+'</td><td><span class="route-badge" style="background:'+bg+';color:'+tc+'">'+a.routeShort+'</span></td><td>'+a.headsign+'</td></tr>';
+  }).join('');
+  var more=filtered.length>150?'<tr><td colspan="3" style="text-align:center;color:#999;font-size:13px;padding:10px">... y '+(filtered.length-150)+' mas</td></tr>':'';
+  w.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>Hora</th><th>Ruta</th><th>Destino</th></tr></thead><tbody>'+rows+more+'</tbody></table></div>';
+}
+
+function setAllHours(){
+  allHours=true;
+  document.getElementById('btn-all-hours').classList.add('active');
+  document.getElementById('hour-val').textContent='Todas';
+  renderArrivals(_cachedArrivals);
+}
+function onHourSlide(v){
+  allHours=false;
+  selectedHour=parseInt(v);
+  document.getElementById('btn-all-hours').classList.remove('active');
+  document.getElementById('hour-val').textContent=(selectedHour%24)+':00';
+  renderArrivals(_cachedArrivals);
+}
+</script>
+</body>
+</html>
