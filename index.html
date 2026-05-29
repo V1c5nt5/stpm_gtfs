@@ -221,8 +221,12 @@ tbody tr:hover{background:#fafafa}
 </div>
 
 <script>
-var SVC = {L:'Lunes a Viernes', S:'Sabado', D:'Domingo', F:'Festivo', LJ:'Lun a Jue', V:'Viernes'};
-var DATA = {routes:{}, trips:{}, frequencies:[], stopTimes:{}, stops:{}, stopIndex:{}, stopTrips:{}, shapes:{}};
+var SVC = {L:'Lunes a Viernes', S:'Sábado', D:'Domingo', F:'Festivo', LJ:'Lun a Jue', V:'Viernes'};
+var DAY_NAMES = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+var DATA = {
+  agency:{}, routes:{}, trips:{}, frequencies:[], stopTimes:{}, stops:{}, stopIndex:{}, stopTrips:{}, shapes:{},
+  calendar:{}, calendarDates:[], feedInfo:null, levels:{}, pathways:[], pathwaysByStop:{}, serviceIds:[], tripsByRoute:{}, tripsByService:{}, tripsByStop:{}
+};
 var freqChart = null, stopChart = null;
 var leafMap = null, layerIda = null, layerReg = null, layerStops = null;
 var activeStop = null, allHours = true, selectedHour = 8;
@@ -241,13 +245,17 @@ function prog(pct, txt){
   document.getElementById('prog-fill').style.width = pct + '%';
   document.getElementById('prog-label').textContent = txt;
 }
-
+function csvNum(v, fallback){
+  if(v===undefined||v===null||v==='') return fallback===undefined?0:fallback;
+  var n = Number(v); return isNaN(n) ? (fallback===undefined?0:fallback) : n;
+}
 function timeToSecs(t){
   if(!t) return 0;
-  var p = t.split(':');
-  return parseInt(p[0])*3600 + parseInt(p[1])*60 + (parseInt(p[2])||0);
+  var p = String(t).split(':');
+  return csvNum(p[0])*3600 + csvNum(p[1])*60 + csvNum(p[2]);
 }
 function secsToTime(s){
+  if(s===null||s===undefined||isNaN(s)) return '—';
   var h = Math.floor(Math.abs(s)/3600) % 24;
   var m = Math.floor((Math.abs(s) % 3600)/60);
   return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
@@ -256,52 +264,117 @@ function cleanName(n){ return (n||'').replace(/^[A-Z0-9]+-/, '').trim(); }
 function freqClass(m){ return m<=12?'fg-good':m<=20?'fg-mid':'fg-low'; }
 function rColor(r){ return r ? '#'+(r.route_color||'AF2B1E') : '#AF2B1E'; }
 function rText(r){ return r ? '#'+(r.route_text_color||'FFFFFF') : '#fff'; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function unique(arr){ return Array.from(new Set(arr.filter(function(x){return x!==undefined&&x!==null&&x!=='';}))); }
+function sortServices(a,b){
+  var order = {L:1,LJ:2,V:3,S:4,D:5,F:6};
+  return (order[a]||99)-(order[b]||99) || String(a).localeCompare(String(b),undefined,{numeric:true});
+}
+function serviceLabel(sid){
+  if(SVC[sid]) return SVC[sid];
+  var c = DATA.calendar[sid];
+  if(c){
+    var flags = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map(function(k){return String(c[k])==='1'||c[k]===1;});
+    var active = flags.map(function(v,i){return v?DAY_NAMES[i]:null;}).filter(Boolean);
+    if(active.length===5 && flags.slice(0,5).every(Boolean) && !flags[5] && !flags[6]) return 'Lunes a Viernes';
+    if(active.length===7) return 'Todos los días';
+    if(active.length) return active.join(', ');
+  }
+  return sid;
+}
+function tripDir(t){ return String(t.direction_id==null||t.direction_id===''?0:t.direction_id); }
+function dirName(dir){ return String(dir)==='1'?'Regreso':'Ida'; }
+function getTripStartOffset(tripId){
+  var st = DATA.stopTimes[tripId]||[];
+  if(!st.length) return 0;
+  return timeToSecs(st[0].departure_time||st[0].arrival_time||'0:00:00');
+}
+function getStopOffsetInTrip(tripId, stopTimeRow){
+  return timeToSecs(stopTimeRow.departure_time||stopTimeRow.arrival_time||'0:00:00') - getTripStartOffset(tripId);
+}
 
 async function handleFile(file){
   if(!file) return;
   prog(5, 'Descomprimiendo .zip...');
   var zip = await JSZip.loadAsync(file);
   async function readTxt(name){ var f=zip.file(name); return f?await f.async('string'):''; }
-  function parse(txt){ return Papa.parse(txt.trim(),{header:true,skipEmptyLines:true,dynamicTyping:true}).data; }
+  function parse(txt){ return txt ? Papa.parse(txt.trim(),{header:true,skipEmptyLines:true,dynamicTyping:false}).data : []; }
 
-  prog(12, 'Leyendo routes.txt...');
-  parse(await readTxt('routes.txt')).forEach(function(r){ DATA.routes[r.route_id]=r; });
+  prog(10, 'Leyendo agency.txt y feed_info.txt...');
+  parse(await readTxt('agency.txt')).forEach(function(a){ DATA.agency[a.agency_id||a.agency_name||'default']=a; });
+  var feedRows = parse(await readTxt('feed_info.txt'));
+  DATA.feedInfo = feedRows.length ? feedRows[0] : null;
 
-  prog(22, 'Leyendo trips.txt...');
-  parse(await readTxt('trips.txt')).forEach(function(t){ DATA.trips[t.trip_id]=t; });
+  prog(15, 'Leyendo calendar.txt y calendar_dates.txt...');
+  parse(await readTxt('calendar.txt')).forEach(function(c){ DATA.calendar[c.service_id]=c; });
+  DATA.calendarDates = parse(await readTxt('calendar_dates.txt'));
 
-  prog(33, 'Leyendo frequencies.txt...');
-  DATA.frequencies = parse(await readTxt('frequencies.txt'));
+  prog(22, 'Leyendo routes.txt...');
+  parse(await readTxt('routes.txt')).forEach(function(r){ DATA.routes[String(r.route_id)]=r; });
 
-  prog(43, 'Leyendo stops.txt...');
+  prog(32, 'Leyendo trips.txt...');
+  parse(await readTxt('trips.txt')).forEach(function(t){
+    t.route_id = String(t.route_id);
+    t.trip_id = String(t.trip_id);
+    t.service_id = String(t.service_id);
+    t.direction_id = String(t.direction_id==null||t.direction_id===''?0:t.direction_id);
+    DATA.trips[t.trip_id]=t;
+    if(!DATA.tripsByRoute[t.route_id]) DATA.tripsByRoute[t.route_id]=[];
+    DATA.tripsByRoute[t.route_id].push(t);
+    if(!DATA.tripsByService[t.service_id]) DATA.tripsByService[t.service_id]=[];
+    DATA.tripsByService[t.service_id].push(t);
+  });
+
+  prog(42, 'Leyendo frequencies.txt...');
+  DATA.frequencies = parse(await readTxt('frequencies.txt')).map(function(f){
+    f.trip_id=String(f.trip_id); f.headway_secs=csvNum(f.headway_secs); f.exact_times=csvNum(f.exact_times,0); return f;
+  });
+
+  prog(50, 'Leyendo stops.txt...');
   parse(await readTxt('stops.txt')).forEach(function(s){
+    s.stop_id=String(s.stop_id); s.stop_lat=csvNum(s.stop_lat,null); s.stop_lon=csvNum(s.stop_lon,null);
     DATA.stops[s.stop_id] = s;
     var name = cleanName(s.stop_name||s.stop_id);
-    DATA.stopIndex[s.stop_id] = {name:name, key:(name+' '+s.stop_id).toLowerCase(), s:s};
+    DATA.stopIndex[s.stop_id] = {name:name, key:(name+' '+s.stop_id+' '+(s.stop_desc||'')).toLowerCase(), s:s};
   });
 
-  prog(53, 'Leyendo shapes.txt (puede tardar)...');
+  prog(60, 'Leyendo shapes.txt...');
   parse(await readTxt('shapes.txt')).forEach(function(row){
+    if(!row.shape_id) return;
     if(!DATA.shapes[row.shape_id]) DATA.shapes[row.shape_id]=[];
-    DATA.shapes[row.shape_id].push({lat:parseFloat(row.shape_pt_lat), lng:parseFloat(row.shape_pt_lon), seq:row.shape_pt_sequence});
+    DATA.shapes[row.shape_id].push({lat:csvNum(row.shape_pt_lat), lng:csvNum(row.shape_pt_lon), seq:csvNum(row.shape_pt_sequence)});
   });
-  Object.keys(DATA.shapes).forEach(function(sid){
-    DATA.shapes[sid].sort(function(a,b){return a.seq-b.seq;});
-  });
+  Object.keys(DATA.shapes).forEach(function(sid){ DATA.shapes[sid].sort(function(a,b){return a.seq-b.seq;}); });
 
-  prog(65, 'Leyendo stop_times.txt...');
-  var stRows = parse(await readTxt('stop_times.txt'));
-
-  prog(85, 'Construyendo indices...');
-  stRows.forEach(function(row){
-    if(!DATA.stopTimes[row.trip_id]) DATA.stopTimes[row.trip_id]=[];
-    DATA.stopTimes[row.trip_id].push(row);
-    if(!DATA.stopTrips[row.stop_id]) DATA.stopTrips[row.stop_id]=[];
-    DATA.stopTrips[row.stop_id].push({
-      trip_id:row.trip_id, seq:row.stop_sequence,
-      offset:timeToSecs(row.departure_time||row.arrival_time||'0:00:00')
+  prog(68, 'Leyendo levels.txt y pathways.txt...');
+  parse(await readTxt('levels.txt')).forEach(function(l){ if(l.level_id) DATA.levels[l.level_id]=l; });
+  DATA.pathways = parse(await readTxt('pathways.txt'));
+  DATA.pathways.forEach(function(pw){
+    ['from_stop_id','to_stop_id'].forEach(function(k){
+      if(!pw[k]) return;
+      if(!DATA.pathwaysByStop[pw[k]]) DATA.pathwaysByStop[pw[k]]=[];
+      DATA.pathwaysByStop[pw[k]].push(pw);
     });
   });
+
+  prog(76, 'Leyendo stop_times.txt...');
+  var stRows = parse(await readTxt('stop_times.txt'));
+
+  prog(88, 'Construyendo índices...');
+  stRows.forEach(function(row){
+    row.trip_id=String(row.trip_id); row.stop_id=String(row.stop_id); row.stop_sequence=csvNum(row.stop_sequence);
+    if(!DATA.stopTimes[row.trip_id]) DATA.stopTimes[row.trip_id]=[];
+    DATA.stopTimes[row.trip_id].push(row);
+  });
+  Object.keys(DATA.stopTimes).forEach(function(tripId){
+    DATA.stopTimes[tripId].sort(function(a,b){return a.stop_sequence-b.stop_sequence;});
+    var start = getTripStartOffset(tripId);
+    DATA.stopTimes[tripId].forEach(function(row){
+      if(!DATA.stopTrips[row.stop_id]) DATA.stopTrips[row.stop_id]=[];
+      DATA.stopTrips[row.stop_id].push({trip_id:tripId, seq:row.stop_sequence, offset:timeToSecs(row.departure_time||row.arrival_time||'0:00:00')-start, stopTime:row});
+    });
+  });
+  DATA.serviceIds = unique(Object.values(DATA.trips).map(function(t){return t.service_id;})).sort(sortServices);
 
   prog(100, 'Listo!');
   setTimeout(function(){
@@ -310,43 +383,82 @@ async function handleFile(file){
     buildUI();
     document.getElementById('app').style.display='block';
     initMap();
-  }, 300);
+    renderMap();
+  }, 250);
 }
 
 function buildUI(){
   var nR=Object.keys(DATA.routes).length;
   var nT=Object.keys(DATA.trips).length;
   var nS=Object.keys(DATA.stops).length;
-  var avgF=Math.round(DATA.frequencies.reduce(function(a,f){return a+f.headway_secs;},0)/DATA.frequencies.length/60);
+  var avgF=DATA.frequencies.length?Math.round(DATA.frequencies.reduce(function(a,f){return a+f.headway_secs;},0)/DATA.frequencies.length/60):'—';
+  var nA=Object.keys(DATA.agency).length;
   document.getElementById('stats-row').innerHTML=[
-    ['Rutas',nR],['Viajes',nT.toLocaleString()],['Paradas',nS.toLocaleString()],['Frec. prom.',avgF+' min']
+    ['Rutas',nR],['Viajes',nT.toLocaleString()],['Paradas',nS.toLocaleString()],['Agencias',nA],['Niveles',Object.keys(DATA.levels).length],['Conexiones',DATA.pathways.length.toLocaleString()],['Frec. prom.',avgF==='—'?'—':avgF+' min']
   ].map(function(x){return '<div class="stat-card"><div class="lbl">'+x[0]+'</div><div class="val">'+x[1]+'</div></div>';}).join('');
 
   var selR=document.getElementById('sel-route');
+  selR.innerHTML='';
   Object.values(DATA.routes)
+    .filter(function(r){return (DATA.tripsByRoute[String(r.route_id)]||[]).length>0;})
     .sort(function(a,b){return String(a.route_short_name).localeCompare(String(b.route_short_name),undefined,{numeric:true});})
     .forEach(function(r){
       var o=document.createElement('option');
       o.value=r.route_id;
-      o.textContent=r.route_short_name+' — '+r.route_long_name;
+      o.textContent=(r.route_short_name||r.route_id)+' — '+(r.route_long_name||'');
       selR.appendChild(o);
     });
 
-  var services=[];
-  Object.values(DATA.trips).forEach(function(t){if(services.indexOf(t.service_id)===-1)services.push(t.service_id);});
-  services.sort();
-  ['sel-service','sel-service-stop'].forEach(function(id){
-    var sel=document.getElementById(id);
-    services.forEach(function(s){
-      var o=document.createElement('option');o.value=s;o.textContent=SVC[s]||s;sel.appendChild(o);
-    });
-  });
-
-  selR.addEventListener('change', renderAll);
+  updateStopGlobalServices();
+  selR.addEventListener('change', function(){ updateRouteServiceOptions(); renderAll(); });
   document.getElementById('sel-service').addEventListener('change', renderAll);
   document.getElementById('sel-service-stop').addEventListener('change', function(){ if(activeStop) renderStop(activeStop); });
   setupStopSearch();
+  updateRouteServiceOptions();
   renderAll();
+}
+
+function routeServices(routeId){
+  return unique((DATA.tripsByRoute[String(routeId)]||[]).map(function(t){return t.service_id;})).sort(sortServices);
+}
+function routeDirs(routeId, serviceId){
+  return unique((DATA.tripsByRoute[String(routeId)]||[]).filter(function(t){return String(t.service_id)===String(serviceId);}).map(function(t){return tripDir(t);})).sort();
+}
+function fillServiceSelect(sel, services){
+  var old=sel.value; sel.innerHTML='';
+  services.forEach(function(s){ var o=document.createElement('option'); o.value=s; o.textContent=serviceLabel(s); sel.appendChild(o); });
+  if(services.indexOf(old)!==-1) sel.value=old;
+  else if(services.length) sel.value=services[0];
+}
+function updateRouteServiceOptions(){
+  var routeId=document.getElementById('sel-route').value;
+  fillServiceSelect(document.getElementById('sel-service'), routeServices(routeId));
+  syncDirectionControls();
+}
+function updateStopGlobalServices(){
+  fillServiceSelect(document.getElementById('sel-service-stop'), DATA.serviceIds);
+}
+function stopServices(stopId){
+  return unique((DATA.stopTrips[stopId]||[]).map(function(e){var t=DATA.trips[e.trip_id]; return t?t.service_id:null;})).sort(sortServices);
+}
+function updateStopServiceOptions(stopId){
+  var services=stopServices(stopId);
+  if(services.length) fillServiceSelect(document.getElementById('sel-service-stop'), services);
+}
+function syncDirectionControls(){
+  var routeId=document.getElementById('sel-route').value;
+  var svcId=document.getElementById('sel-service').value;
+  var dirs=routeDirs(routeId, svcId);
+  if(dirs.indexOf(String(curMapDir))===-1 && curMapDir!==-1) curMapDir = dirs.indexOf('0')!==-1 ? 0 : Number(dirs[0]||0);
+  if(dirs.length<2 && curMapDir===-1) curMapDir = Number(dirs[0]||0);
+  if(dirs.indexOf(String(curStopsDir))===-1) curStopsDir = dirs.indexOf('0')!==-1 ? 0 : Number(dirs[0]||0);
+
+  ['map-btn-0','map-btn-1','map-btn-both','stops-btn-0','stops-btn-1'].forEach(function(id){var el=document.getElementById(id); if(el) el.style.display='none';});
+  if(dirs.indexOf('0')!==-1){ document.getElementById('map-btn-0').style.display='inline-block'; document.getElementById('stops-btn-0').style.display='inline-block'; }
+  if(dirs.indexOf('1')!==-1){ document.getElementById('map-btn-1').style.display='inline-block'; document.getElementById('stops-btn-1').style.display='inline-block'; }
+  if(dirs.length>1) document.getElementById('map-btn-both').style.display='inline-block';
+  setMapDir(curMapDir, true);
+  setStopsDir(curStopsDir, true);
 }
 
 function switchTab(tab){
@@ -356,331 +468,209 @@ function switchTab(tab){
   if(tab==='ruta' && leafMap) setTimeout(function(){leafMap.invalidateSize();},50);
 }
 
-/* ── MAP ── */
 function initMap(){
   leafMap = L.map('map').setView([-33.45, -70.65], 11);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-    attribution:'&copy; OpenStreetMap contributors', maxZoom:18
-  }).addTo(leafMap);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'&copy; OpenStreetMap contributors', maxZoom:18 }).addTo(leafMap);
 }
-
-function setMapDir(dir){
-  curMapDir = dir;
-  ['0','1','both'].forEach(function(d){
-    document.getElementById('map-btn-'+d).classList.toggle('active', String(dir)===(d==='both'?'-1':d));
-  });
-  renderMap();
+function setMapDir(dir, skipRender){
+  curMapDir = Number(dir);
+  ['0','1','both'].forEach(function(d){ var el=document.getElementById('map-btn-'+d); if(el) el.classList.toggle('active', String(curMapDir)===(d==='both'?'-1':d)); });
+  if(!skipRender) renderMap();
 }
-
 function renderMap(){
   if(!leafMap) return;
-  if(layerIda)   { leafMap.removeLayer(layerIda);   layerIda=null; }
-  if(layerReg)   { leafMap.removeLayer(layerReg);   layerReg=null; }
-  if(layerStops) { leafMap.removeLayer(layerStops); layerStops=null; }
-
-  var routeId = document.getElementById('sel-route').value;
-  var svcId   = document.getElementById('sel-service').value;
-  var route   = DATA.routes[routeId];
-  var bounds  = [];
-
-  var stopGroup = L.layerGroup();
-  var stopSet   = {};
-
+  if(layerIda){ leafMap.removeLayer(layerIda); layerIda=null; }
+  if(layerReg){ leafMap.removeLayer(layerReg); layerReg=null; }
+  if(layerStops){ leafMap.removeLayer(layerStops); layerStops=null; }
+  var routeId=document.getElementById('sel-route').value, svcId=document.getElementById('sel-service').value;
+  var bounds=[], stopGroup=L.layerGroup(), stopSet={};
   function drawDir(dir, color){
-    var trips = Object.values(DATA.trips).filter(function(t){
-      return String(t.route_id)===String(routeId) && t.service_id===svcId && t.direction_id===dir;
-    });
-    if(!trips.length) return;
-
-    var shapeId = trips[0].shape_id;
-    var pts     = DATA.shapes[shapeId];
-    if(!pts||!pts.length) return;
-
-    var latlngs = pts.map(function(p){return [p.lat,p.lng];});
-    var poly    = L.polyline(latlngs,{color:color,weight:4,opacity:0.85});
-    if(dir===0||curMapDir===-1){ layerIda=(dir===0?poly:layerIda); }
-    if(dir===1||curMapDir===-1){ layerReg=(dir===1?poly:layerReg); }
-    poly.addTo(leafMap);
-    bounds = bounds.concat(latlngs);
-
-    var refTrip  = trips[0];
-    var stopSeq  = DATA.stopTimes[refTrip.trip_id]||[];
-    var n        = stopSeq.length;
-
+    var trips=getTrips(dir); if(!trips.length) return;
+    var shapeTrip=trips.find(function(t){return t.shape_id && DATA.shapes[t.shape_id]&&DATA.shapes[t.shape_id].length;}) || trips[0];
+    var pts=DATA.shapes[shapeTrip.shape_id];
+    if(pts&&pts.length){
+      var latlngs=pts.map(function(p){return [p.lat,p.lng];});
+      var poly=L.polyline(latlngs,{color:color,weight:4,opacity:0.85}).addTo(leafMap);
+      if(String(dir)==='0') layerIda=poly; else layerReg=poly;
+      bounds=bounds.concat(latlngs);
+    }
+    var refTrip=trips.find(function(t){return DATA.stopTimes[t.trip_id]&&DATA.stopTimes[t.trip_id].length;});
+    var stopSeq=refTrip?(DATA.stopTimes[refTrip.trip_id]||[]):[];
     stopSeq.forEach(function(st,i){
-      if(stopSet[st.stop_id]) return;
-      stopSet[st.stop_id]=true;
-      var stop = DATA.stops[st.stop_id];
-      if(!stop||!stop.stop_lat) return;
-      var isFirst = (i===0), isLast = (i===n-1);
-      var dotColor = isFirst?'#16a34a':isLast?'#dc2626':'#1d4ed8';
-      var radius   = isFirst||isLast?9:5;
-      var sName    = cleanName(stop.stop_name||st.stop_id);
-      L.circleMarker([+stop.stop_lat,+stop.stop_lon],{
-        radius:radius, fillColor:dotColor, color:'#fff',
-        weight:2, opacity:1, fillOpacity:1
-      }).bindPopup('<b>'+sName+'</b><br><small>'+st.stop_id+'</small>').addTo(stopGroup);
+      if(stopSet[st.stop_id]) return; stopSet[st.stop_id]=true;
+      var stop=DATA.stops[st.stop_id]; if(!stop||stop.stop_lat===null||stop.stop_lon===null) return;
+      var isFirst=i===0, isLast=i===stopSeq.length-1;
+      var dotColor=isFirst?'#16a34a':isLast?'#dc2626':'#1d4ed8'; var radius=isFirst||isLast?9:5;
+      L.circleMarker([+stop.stop_lat,+stop.stop_lon],{radius:radius,fillColor:dotColor,color:'#fff',weight:2,opacity:1,fillOpacity:1})
+        .bindPopup('<b>'+esc(cleanName(stop.stop_name||st.stop_id))+'</b><br><small>'+esc(st.stop_id)+'</small>').addTo(stopGroup);
     });
   }
-
   if(curMapDir===0||curMapDir===-1) drawDir(0,'#2563eb');
   if(curMapDir===1||curMapDir===-1) drawDir(1,'#dc2626');
-
-  layerStops = stopGroup;
-  stopGroup.addTo(leafMap);
-
-  var totalStops = Object.keys(stopSet).length;
-  document.getElementById('map-stop-count').textContent = totalStops ? totalStops+' paradas' : '';
-
+  layerStops=stopGroup; stopGroup.addTo(leafMap);
+  document.getElementById('map-stop-count').textContent=Object.keys(stopSet).length?Object.keys(stopSet).length+' paradas':'';
   if(bounds.length) leafMap.fitBounds(bounds,{padding:[20,20]});
 }
 
-/* ── RENDER ALL (ruta tab) ── */
-function renderAll(){
-  renderFreqs();
-  renderMap();
-  renderStopsTable();
-}
-
+function renderAll(){ syncDirectionControls(); renderFreqs(); renderMap(); renderStopsTable(); }
 function getTrips(dir){
-  var routeId=document.getElementById('sel-route').value;
-  var svcId=document.getElementById('sel-service').value;
-  return Object.values(DATA.trips).filter(function(t){
-    return String(t.route_id)===String(routeId)&&t.service_id===svcId&&(dir===-1||t.direction_id===dir);
-  });
+  var routeId=document.getElementById('sel-route').value, svcId=document.getElementById('sel-service').value;
+  return (DATA.tripsByRoute[String(routeId)]||[]).filter(function(t){return String(t.service_id)===String(svcId) && (dir===-1||tripDir(t)===String(dir));});
 }
-
+function getFreqsForTrips(trips){
+  var ids={}; trips.forEach(function(t){ids[t.trip_id]=true;});
+  return DATA.frequencies.filter(function(f){return ids[f.trip_id];});
+}
+function scheduledHeadways(trips){
+  var byHour={};
+  trips.forEach(function(t){
+    var st=DATA.stopTimes[t.trip_id]; if(!st||!st.length) return;
+    var s=timeToSecs(st[0].departure_time||st[0].arrival_time||'0:00:00');
+    var h=Math.floor(s/3600); if(h<0||h>27) return;
+    if(!byHour[h]) byHour[h]=[]; byHour[h].push(s);
+  });
+  var out=[];
+  Object.keys(byHour).forEach(function(h){
+    var arr=byHour[h].sort(function(a,b){return a-b;});
+    if(arr.length===1) out.push({start_time:String(h).padStart(2,'0')+':00:00', end_time:String(Number(h)+1).padStart(2,'0')+':00:00', headway_secs:3600});
+    else {
+      var diffs=[]; for(var i=1;i<arr.length;i++) diffs.push(arr[i]-arr[i-1]);
+      var avg=Math.round(diffs.reduce(function(a,b){return a+b;},0)/diffs.length);
+      out.push({start_time:String(h).padStart(2,'0')+':00:00', end_time:String(Number(h)+1).padStart(2,'0')+':00:00', headway_secs:avg});
+    }
+  });
+  return out;
+}
 function renderFreqs(){
-  var tripsIda = getTrips(0);
-  var tripsReg = getTrips(1);
-  var idsIda={}, idsReg={};
-  tripsIda.forEach(function(t){idsIda[t.trip_id]=true;});
-  tripsReg.forEach(function(t){idsReg[t.trip_id]=true;});
-  var freqsIda = DATA.frequencies.filter(function(f){return idsIda[f.trip_id];});
-  var freqsReg = DATA.frequencies.filter(function(f){return idsReg[f.trip_id];});
-
+  var tripsIda=getTrips(0), tripsReg=getTrips(1);
+  var freqsIda=getFreqsForTrips(tripsIda), freqsReg=getFreqsForTrips(tripsReg);
+  if(!freqsIda.length) freqsIda=scheduledHeadways(tripsIda);
+  if(!freqsReg.length) freqsReg=scheduledHeadways(tripsReg);
   renderFreqTable(freqsIda, freqsReg);
   renderFreqChart(freqsIda, freqsReg);
 }
-
 function renderFreqTable(freqsIda, freqsReg){
-  var w=document.getElementById('freq-table-wrap');
-  var all = {};
-  function absorb(arr, key){
-    arr.forEach(function(f){
-      var k=f.start_time+'|'+f.end_time;
-      if(!all[k]) all[k]={start:f.start_time.slice(0,5),end:f.end_time.slice(0,5)};
-      all[k][key]=Math.round(f.headway_secs/60);
-    });
-  }
-  absorb(freqsIda,'ida');
-  absorb(freqsReg,'reg');
-  var rows=Object.values(all).map(function(r){
-    var ida=r.ida?'<span class="freq-pill '+freqClass(r.ida)+'">'+r.ida+' min</span>':'<span style="color:#ccc">—</span>';
-    var reg=r.reg?'<span class="freq-pill '+freqClass(r.reg)+'">'+r.reg+' min</span>':'<span style="color:#ccc">—</span>';
-    return '<tr><td>'+r.start+'</td><td>'+r.end+'</td><td>'+ida+'</td><td>'+reg+'</td></tr>';
+  var w=document.getElementById('freq-table-wrap'), dirs=routeDirs(document.getElementById('sel-route').value, document.getElementById('sel-service').value);
+  var all={};
+  function absorb(arr,key){ arr.forEach(function(f){ var k=f.start_time+'|'+f.end_time; if(!all[k]) all[k]={start:String(f.start_time).slice(0,5),end:String(f.end_time).slice(0,5)}; all[k][key]=Math.round(f.headway_secs/60); }); }
+  absorb(freqsIda,'ida'); absorb(freqsReg,'reg');
+  var vals=Object.values(all).sort(function(a,b){return a.start.localeCompare(b.start);});
+  if(!vals.length){ w.innerHTML='<div class="no-data">Sin frecuencias ni salidas programadas para este filtro</div>'; return; }
+  var headers='<th>Desde</th><th>Hasta</th>'+(dirs.indexOf('0')!==-1?'<th>Ida</th>':'')+(dirs.indexOf('1')!==-1?'<th>Regreso</th>':'');
+  var rows=vals.map(function(r){
+    var cells='<td>'+esc(r.start)+'</td><td>'+esc(r.end)+'</td>';
+    if(dirs.indexOf('0')!==-1) cells+='<td>'+(r.ida?'<span class="freq-pill '+freqClass(r.ida)+'">'+r.ida+' min</span>':'<span style="color:#ccc">—</span>')+'</td>';
+    if(dirs.indexOf('1')!==-1) cells+='<td>'+(r.reg?'<span class="freq-pill '+freqClass(r.reg)+'">'+r.reg+' min</span>':'<span style="color:#ccc">—</span>')+'</td>';
+    return '<tr>'+cells+'</tr>';
   }).join('');
-  w.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>Desde</th><th>Hasta</th><th>Ida</th><th>Regreso</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  w.innerHTML='<div class="tbl-wrap"><table><thead><tr>'+headers+'</tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
-
 function renderFreqChart(freqsIda, freqsReg){
-  var labels=[], valIda=[], valReg=[];
+  var labels=[], valIda=[], valReg=[], dirs=routeDirs(document.getElementById('sel-route').value, document.getElementById('sel-service').value);
   for(var h=0;h<24;h++){
     labels.push(h+'h');
-    function avg(freqs){
-      var m=freqs.filter(function(f){var sh=parseInt(f.start_time.split(':')[0]),eh=parseInt(f.end_time.split(':')[0]);return sh<=h&&eh>h;});
-      return m.length?Math.round(m.reduce(function(a,f){return a+f.headway_secs;},0)/m.length/60):null;
-    }
-    valIda.push(avg(freqsIda));
-    valReg.push(avg(freqsReg));
+    function avg(freqs){ var m=freqs.filter(function(f){var sh=parseInt(String(f.start_time).split(':')[0]),eh=parseInt(String(f.end_time).split(':')[0]);return sh<=h&&eh>h;}); return m.length?Math.round(m.reduce(function(a,f){return a+f.headway_secs;},0)/m.length/60):null; }
+    valIda.push(avg(freqsIda)); valReg.push(avg(freqsReg));
   }
-  var ctx=document.getElementById('freq-chart').getContext('2d');
-  if(freqChart) freqChart.destroy();
-  freqChart=new Chart(ctx,{
-    type:'bar',
-    data:{labels:labels,datasets:[
-      {label:'Ida',data:valIda,backgroundColor:'rgba(37,99,235,0.7)',borderRadius:3},
-      {label:'Regreso',data:valReg,backgroundColor:'rgba(220,38,38,0.65)',borderRadius:3}
-    ]},
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{position:'top',labels:{font:{size:12},boxWidth:14}}},
-      scales:{
-        y:{beginAtZero:true,title:{display:true,text:'min',font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}},
-        x:{grid:{display:false},ticks:{font:{size:10},maxRotation:0}}
-      }
-    }
-  });
+  var datasets=[];
+  if(dirs.indexOf('0')!==-1) datasets.push({label:'Ida',data:valIda,backgroundColor:'rgba(37,99,235,0.7)',borderRadius:3});
+  if(dirs.indexOf('1')!==-1) datasets.push({label:'Regreso',data:valReg,backgroundColor:'rgba(220,38,38,0.65)',borderRadius:3});
+  var ctx=document.getElementById('freq-chart').getContext('2d'); if(freqChart) freqChart.destroy();
+  freqChart=new Chart(ctx,{type:'bar',data:{labels:labels,datasets:datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{font:{size:12},boxWidth:14}}},scales:{y:{beginAtZero:true,title:{display:true,text:'min',font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}},x:{grid:{display:false},ticks:{font:{size:10},maxRotation:0}}}}});
 }
-
-function setStopsDir(dir){
-  curStopsDir=dir;
-  document.getElementById('stops-btn-0').classList.toggle('active',dir===0);
-  document.getElementById('stops-btn-1').classList.toggle('active',dir===1);
-  renderStopsTable();
+function setStopsDir(dir, skipRender){
+  curStopsDir=Number(dir);
+  var b0=document.getElementById('stops-btn-0'), b1=document.getElementById('stops-btn-1');
+  if(b0) b0.classList.toggle('active',curStopsDir===0); if(b1) b1.classList.toggle('active',curStopsDir===1);
+  if(!skipRender) renderStopsTable();
 }
-
 function renderStopsTable(){
-  var w=document.getElementById('stops-table-wrap');
-  var trips=getTrips(curStopsDir);
+  var w=document.getElementById('stops-table-wrap'), trips=getTrips(curStopsDir);
   if(!trips.length){w.innerHTML='<div class="no-data">Sin viajes para este filtro</div>';return;}
-  var refTrip=trips[0];
-  var stopSeq=DATA.stopTimes[refTrip.trip_id];
-  if(!stopSeq){w.innerHTML='<div class="no-data">Sin datos de paradas</div>';return;}
-  var freqs=DATA.frequencies.filter(function(f){return f.trip_id===refTrip.trip_id;});
-  var startSec=freqs.length?timeToSecs(freqs[0].start_time):0;
-  var lastFreq=freqs[freqs.length-1];
-  var endSec=lastFreq?timeToSecs(lastFreq.end_time):0;
-  var rows=stopSeq.slice(0,35).map(function(st){
-    var stop=DATA.stops[st.stop_id]||{};
-    var name=cleanName(stop.stop_name||st.stop_id);
-    var offset=timeToSecs(st.departure_time||st.arrival_time||'0:00:00');
-    return '<tr><td style="color:#999;font-size:12px">'+st.stop_sequence+'</td><td>'+name+'</td><td style="font-weight:500">'+secsToTime(startSec+offset)+'</td><td style="font-weight:500">'+secsToTime(endSec+offset)+'</td></tr>';
+  var refTrip=trips.find(function(t){return DATA.stopTimes[t.trip_id]&&DATA.stopTimes[t.trip_id].length;});
+  var stopSeq=refTrip?DATA.stopTimes[refTrip.trip_id]:[]; if(!stopSeq.length){w.innerHTML='<div class="no-data">Sin datos de paradas</div>';return;}
+  var freqs=getFreqsForTrips([refTrip]);
+  var startSec=freqs.length?timeToSecs(freqs[0].start_time):getTripStartOffset(refTrip.trip_id);
+  var lastFreq=freqs[freqs.length-1]; var endSec=lastFreq?timeToSecs(lastFreq.end_time):startSec;
+  var baseStart=getTripStartOffset(refTrip.trip_id);
+  var rows=stopSeq.slice(0,60).map(function(st){
+    var stop=DATA.stops[st.stop_id]||{}, name=cleanName(stop.stop_name||st.stop_id);
+    var offset=timeToSecs(st.departure_time||st.arrival_time||'0:00:00')-baseStart;
+    return '<tr><td style="color:#999;font-size:12px">'+st.stop_sequence+'</td><td>'+esc(name)+'</td><td style="font-weight:500">'+secsToTime(startSec+offset)+'</td><td style="font-weight:500">'+secsToTime(endSec+offset)+'</td></tr>';
   }).join('');
-  var more=stopSeq.length>35?'<tr><td colspan="4" style="text-align:center;color:#999;font-size:13px;padding:10px">... y '+(stopSeq.length-35)+' paradas mas</td></tr>':'';
-  w.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Parada</th><th>Primera salida</th><th>Ultima salida</th></tr></thead><tbody>'+rows+more+'</tbody></table></div>';
+  var more=stopSeq.length>60?'<tr><td colspan="4" style="text-align:center;color:#999;font-size:13px;padding:10px">... y '+(stopSeq.length-60)+' paradas más</td></tr>':'';
+  w.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Parada</th><th>Primera salida</th><th>Última salida</th></tr></thead><tbody>'+rows+more+'</tbody></table></div>';
 }
 
-/* ── PARADERO TAB ── */
 function setupStopSearch(){
-  var inp=document.getElementById('stop-search');
-  var sug=document.getElementById('suggestions');
+  var inp=document.getElementById('stop-search'), sug=document.getElementById('suggestions');
   inp.addEventListener('input',function(){
-    var q=inp.value.trim().toLowerCase();
-    if(q.length<2){sug.style.display='none';return;}
+    var q=inp.value.trim().toLowerCase(); if(q.length<2){sug.style.display='none';return;}
     var results=Object.values(DATA.stopIndex).filter(function(s){return s.key.indexOf(q)!==-1;}).slice(0,14);
     if(!results.length){sug.style.display='none';return;}
-    sug.innerHTML=results.map(function(s){
-      return '<div class="sug-item" onclick="selectStop(\''+s.s.stop_id+'\')">'+s.name+'<small>'+s.s.stop_id+'</small></div>';
-    }).join('');
+    sug.innerHTML=results.map(function(s){ return '<div class="sug-item" onclick="selectStop(\''+esc(String(s.s.stop_id)).replace(/&#39;/g,"\\'")+'\')">'+esc(s.name)+'<small>'+esc(s.s.stop_id)+'</small></div>'; }).join('');
     sug.style.display='block';
   });
   document.addEventListener('click',function(e){if(!e.target.closest('.search-wrap'))sug.style.display='none';});
 }
-
 function selectStop(stopId){
   document.getElementById('suggestions').style.display='none';
-  var stop=DATA.stops[stopId];
-  if(!stop)return;
+  var stop=DATA.stops[stopId]; if(!stop)return;
   document.getElementById('stop-search').value=cleanName(stop.stop_name||stopId);
-  activeStop=stopId;
-  renderStop(stopId);
-  document.getElementById('stop-detail').style.display='block';
-  document.getElementById('stop-hint').style.display='none';
+  activeStop=stopId; updateStopServiceOptions(stopId); renderStop(stopId);
+  document.getElementById('stop-detail').style.display='block'; document.getElementById('stop-hint').style.display='none';
 }
-
 function computeArrivals(stopId, svcId){
-  var entries=(DATA.stopTrips[stopId]||[]).filter(function(e){
-    var trip=DATA.trips[e.trip_id];return trip&&trip.service_id===svcId;
-  });
+  var entries=(DATA.stopTrips[stopId]||[]).filter(function(e){ var trip=DATA.trips[e.trip_id];return trip&&trip.service_id===svcId; });
   var arrivals=[];
   entries.forEach(function(e){
-    var trip=DATA.trips[e.trip_id];if(!trip)return;
-    var route=DATA.routes[trip.route_id];
-    var freqs=DATA.frequencies.filter(function(f){return f.trip_id===e.trip_id;});
-    freqs.forEach(function(f){
-      var startS=timeToSecs(f.start_time),endS=timeToSecs(f.end_time),hw=f.headway_secs;
-      if(hw<=0)return;
-      for(var t=startS+e.offset;t<endS+e.offset;t+=hw){
-        var h=Math.floor(t/3600);
-        if(h>=0&&h<=27){
-          arrivals.push({timeSecs:t,timeStr:secsToTime(t),hour:h%24,headsign:trip.trip_headsign||'—',route:route,routeShort:route?route.route_short_name:'?'});
-        }
-      }
-    });
-  });
-  arrivals.sort(function(a,b){return a.timeSecs-b.timeSecs;});
-  return arrivals;
-}
-
-function renderStop(stopId){
-  var stop=DATA.stops[stopId]||{};
-  var svcId=document.getElementById('sel-service-stop').value;
-  var name=cleanName(stop.stop_name||stopId);
-  document.getElementById('stop-header-info').innerHTML=
-    '<div class="stop-pin">&#128205;</div>'+
-    '<div><div class="stop-name-big">'+name+'</div><div class="stop-id-small">'+stopId+
-    (stop.stop_lat?' &nbsp;&middot;&nbsp; '+(+stop.stop_lat).toFixed(5)+', '+(+stop.stop_lon).toFixed(5):'')+
-    '</div></div>';
-
-  var entries=(DATA.stopTrips[stopId]||[]).filter(function(e){var t=DATA.trips[e.trip_id];return t&&t.service_id===svcId;});
-  if(!entries.length){
-    document.getElementById('routes-at-stop-wrap').innerHTML='<div class="no-data">Sin recorridos para este tipo de dia</div>';
-    document.getElementById('arrivals-wrap').innerHTML='<div class="no-data">Sin datos</div>';
-    renderStopChart([]);return;
-  }
-  var routeMap={};
-  entries.forEach(function(e){
-    var trip=DATA.trips[e.trip_id];if(!trip)return;
-    var rid=trip.route_id;
-    if(!routeMap[rid]) routeMap[rid]={route:DATA.routes[rid],headsigns:{},count:0};
-    routeMap[rid].count++;
-    if(trip.trip_headsign) routeMap[rid].headsigns[trip.trip_headsign]=true;
-  });
-  var routesSorted=Object.values(routeMap).sort(function(a,b){
-    return String(a.route?a.route.route_short_name:'').localeCompare(String(b.route?b.route.route_short_name:''),undefined,{numeric:true});
-  });
-  var tableRows=routesSorted.map(function(rm){
-    var r=rm.route,bg=rColor(r),tc=rText(r),hs=Object.keys(rm.headsigns).join(' / ')||'—';
-    return '<tr><td><span class="route-badge" style="background:'+bg+';color:'+tc+'">'+(r?r.route_short_name:'?')+'</span></td><td>'+hs+'</td><td>'+rm.count+'</td></tr>';
-  }).join('');
-  document.getElementById('routes-at-stop-wrap').innerHTML=
-    '<div class="tbl-wrap"><table><thead><tr><th>Ruta</th><th>Destino</th><th>Viajes/dia</th></tr></thead><tbody>'+tableRows+'</tbody></table></div>';
-
-  _cachedArrivals=computeArrivals(stopId,svcId);
-  renderStopChart(_cachedArrivals);
-  renderArrivals(_cachedArrivals);
-}
-
-function renderStopChart(arrivals){
-  var labels=[],values=[];
-  for(var h=0;h<24;h++){
-    labels.push(h+'h');
-    values.push(arrivals.filter(function(a){return a.hour===h;}).length);
-  }
-  var ctx=document.getElementById('stop-chart').getContext('2d');
-  if(stopChart) stopChart.destroy();
-  stopChart=new Chart(ctx,{
-    type:'bar',
-    data:{labels:labels,datasets:[{label:'Buses',data:values,backgroundColor:'rgba(85,153,221,0.8)',borderRadius:3}]},
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false}},
-      scales:{
-        y:{beginAtZero:true,title:{display:true,text:'buses',font:{size:11}},ticks:{stepSize:1},grid:{color:'rgba(0,0,0,0.05)'}},
-        x:{grid:{display:false},ticks:{font:{size:10},maxRotation:0}}
-      }
+    var trip=DATA.trips[e.trip_id]; if(!trip)return;
+    var route=DATA.routes[trip.route_id], freqs=DATA.frequencies.filter(function(f){return f.trip_id===e.trip_id;});
+    if(freqs.length){
+      freqs.forEach(function(f){
+        var startS=timeToSecs(f.start_time), endS=timeToSecs(f.end_time), hw=f.headway_secs; if(hw<=0)return;
+        for(var t=startS+e.offset;t<endS+e.offset;t+=hw){ var h=Math.floor(t/3600); if(h>=0&&h<=27) arrivals.push({timeSecs:t,timeStr:secsToTime(t),hour:h%24,headsign:trip.trip_headsign||trip.trip_short_name||'—',route:route,routeShort:route?route.route_short_name:'?',dir:tripDir(trip)}); }
+      });
+    } else {
+      var st=DATA.stopTimes[e.trip_id]||[]; var row=st.find(function(x){return x.stop_id===stopId && x.stop_sequence===e.seq;}) || e.stopTime;
+      var t=timeToSecs(row.departure_time||row.arrival_time||'0:00:00'), h=Math.floor(t/3600);
+      if(h>=0&&h<=27) arrivals.push({timeSecs:t,timeStr:secsToTime(t),hour:h%24,headsign:trip.trip_headsign||trip.trip_short_name||'—',route:route,routeShort:route?route.route_short_name:'?',dir:tripDir(trip)});
     }
   });
+  arrivals.sort(function(a,b){return a.timeSecs-b.timeSecs;}); return arrivals;
 }
-
+function renderStop(stopId){
+  var stop=DATA.stops[stopId]||{}, svcId=document.getElementById('sel-service-stop').value, name=cleanName(stop.stop_name||stopId);
+  var level = stop.level_id && DATA.levels[stop.level_id] ? DATA.levels[stop.level_id].level_name : '';
+  var pathCount = (DATA.pathwaysByStop[stopId]||[]).length;
+  var meta = esc(stopId)+(stop.stop_lat!==null?' &nbsp;&middot;&nbsp; '+(+stop.stop_lat).toFixed(5)+', '+(+stop.stop_lon).toFixed(5):'')+(level?' &nbsp;&middot;&nbsp; '+esc(level):'')+(pathCount?' &nbsp;&middot;&nbsp; '+pathCount+' conexiones internas':'');
+  document.getElementById('stop-header-info').innerHTML='<div class="stop-pin">&#128205;</div><div><div class="stop-name-big">'+esc(name)+'</div><div class="stop-id-small">'+meta+'</div></div>';
+  var entries=(DATA.stopTrips[stopId]||[]).filter(function(e){var t=DATA.trips[e.trip_id];return t&&t.service_id===svcId;});
+  if(!entries.length){ document.getElementById('routes-at-stop-wrap').innerHTML='<div class="no-data">Sin recorridos para este tipo de día</div>'; document.getElementById('arrivals-wrap').innerHTML='<div class="no-data">Sin datos</div>'; renderStopChart([]); return; }
+  var routeMap={};
+  entries.forEach(function(e){ var trip=DATA.trips[e.trip_id]; if(!trip)return; var rid=trip.route_id; if(!routeMap[rid]) routeMap[rid]={route:DATA.routes[rid],headsigns:{},dirs:{},count:0}; routeMap[rid].count++; if(trip.trip_headsign) routeMap[rid].headsigns[trip.trip_headsign]=true; routeMap[rid].dirs[dirName(tripDir(trip))]=true; });
+  var routesSorted=Object.values(routeMap).sort(function(a,b){ return String(a.route?a.route.route_short_name:'').localeCompare(String(b.route?b.route.route_short_name:''),undefined,{numeric:true}); });
+  var tableRows=routesSorted.map(function(rm){ var r=rm.route,bg=rColor(r),tc=rText(r),hs=Object.keys(rm.headsigns).join(' / ')||'—',dirs=Object.keys(rm.dirs).join(' / '); return '<tr><td><span class="route-badge" style="background:'+bg+';color:'+tc+'">'+esc(r?r.route_short_name:'?')+'</span></td><td>'+esc(dirs)+'</td><td>'+esc(hs)+'</td><td>'+rm.count+'</td></tr>'; }).join('');
+  document.getElementById('routes-at-stop-wrap').innerHTML='<div class="tbl-wrap"><table><thead><tr><th>Ruta</th><th>Sentido</th><th>Destino</th><th>Viajes/día</th></tr></thead><tbody>'+tableRows+'</tbody></table></div>';
+  _cachedArrivals=computeArrivals(stopId,svcId); renderStopChart(_cachedArrivals); renderArrivals(_cachedArrivals);
+}
+function renderStopChart(arrivals){
+  var labels=[],values=[]; for(var h=0;h<24;h++){ labels.push(h+'h'); values.push(arrivals.filter(function(a){return a.hour===h;}).length); }
+  var ctx=document.getElementById('stop-chart').getContext('2d'); if(stopChart) stopChart.destroy();
+  stopChart=new Chart(ctx,{type:'bar',data:{labels:labels,datasets:[{label:'Buses',data:values,backgroundColor:'rgba(85,153,221,0.8)',borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,title:{display:true,text:'buses',font:{size:11}},ticks:{stepSize:1},grid:{color:'rgba(0,0,0,0.05)'}},x:{grid:{display:false},ticks:{font:{size:10},maxRotation:0}}}}});
+}
 function renderArrivals(arrivals){
   var filtered=allHours?arrivals:arrivals.filter(function(a){return a.hour===selectedHour%24;});
-  document.getElementById('arrivals-title').textContent=allHours
-    ?'Todas las llegadas — '+arrivals.length+' buses/dia'
-    :'Llegadas a las '+(selectedHour%24)+':xx — '+filtered.length+' buses';
-  var w=document.getElementById('arrivals-wrap');
-  if(!filtered.length){w.innerHTML='<div class="no-data">Sin buses en este horario</div>';return;}
+  document.getElementById('arrivals-title').textContent=allHours?'Todas las llegadas — '+arrivals.length+' buses/día':'Llegadas a las '+(selectedHour%24)+':xx — '+filtered.length+' buses';
+  var w=document.getElementById('arrivals-wrap'); if(!filtered.length){w.innerHTML='<div class="no-data">Sin buses en este horario</div>';return;}
   var show=filtered.slice(0,150);
-  var rows=show.map(function(a){
-    var bg=rColor(a.route),tc=rText(a.route);
-    return '<tr><td style="font-weight:600">'+a.timeStr+'</td><td><span class="route-badge" style="background:'+bg+';color:'+tc+'">'+a.routeShort+'</span></td><td>'+a.headsign+'</td></tr>';
-  }).join('');
-  var more=filtered.length>150?'<tr><td colspan="3" style="text-align:center;color:#999;font-size:13px;padding:10px">... y '+(filtered.length-150)+' mas</td></tr>':'';
-  w.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>Hora</th><th>Ruta</th><th>Destino</th></tr></thead><tbody>'+rows+more+'</tbody></table></div>';
+  var rows=show.map(function(a){ var bg=rColor(a.route),tc=rText(a.route); return '<tr><td style="font-weight:600">'+a.timeStr+'</td><td><span class="route-badge" style="background:'+bg+';color:'+tc+'">'+esc(a.routeShort)+'</span></td><td>'+esc(dirName(a.dir))+'</td><td>'+esc(a.headsign)+'</td></tr>'; }).join('');
+  var more=filtered.length>150?'<tr><td colspan="4" style="text-align:center;color:#999;font-size:13px;padding:10px">... y '+(filtered.length-150)+' más</td></tr>':'';
+  w.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>Hora</th><th>Ruta</th><th>Sentido</th><th>Destino</th></tr></thead><tbody>'+rows+more+'</tbody></table></div>';
 }
+function setAllHours(){ allHours=true; document.getElementById('btn-all-hours').classList.add('active'); document.getElementById('hour-val').textContent='Todas'; renderArrivals(_cachedArrivals); }
+function onHourSlide(v){ allHours=false; selectedHour=parseInt(v); document.getElementById('btn-all-hours').classList.remove('active'); document.getElementById('hour-val').textContent=(selectedHour%24)+':00'; renderArrivals(_cachedArrivals); }
 
-function setAllHours(){
-  allHours=true;
-  document.getElementById('btn-all-hours').classList.add('active');
-  document.getElementById('hour-val').textContent='Todas';
-  renderArrivals(_cachedArrivals);
-}
-function onHourSlide(v){
-  allHours=false;
-  selectedHour=parseInt(v);
-  document.getElementById('btn-all-hours').classList.remove('active');
-  document.getElementById('hour-val').textContent=(selectedHour%24)+':00';
-  renderArrivals(_cachedArrivals);
-}
 </script>
 </body>
 </html>
