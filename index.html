@@ -80,6 +80,13 @@ tbody tr:hover{background:#fafafa}
 .hint{color:var(--muted);font-size:13px;text-align:center;padding:32px}
 /* MAP */
 #map{height:460px;border-radius:var(--radius);border:1px solid var(--border);margin-bottom:14px;z-index:1}
+#stop-map{height:300px;border-radius:var(--radius);border:1px solid var(--border);z-index:1}
+.stop-map-grid{display:grid;grid-template-columns:1fr 1.4fr;gap:14px;margin-bottom:14px}
+@media(max-width:800px){.stop-map-grid{grid-template-columns:1fr}}
+.compare-upload{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:14px}
+.compare-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.compare-list{max-height:340px;overflow:auto}
+.delta-up{color:#2e7d32;font-weight:600}.delta-down{color:#c62828;font-weight:600}.delta-neutral{color:var(--muted)}
 .map-legend{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 14px;background:var(--card);border:1px solid var(--border);border-radius:var(--rsm);margin-bottom:14px;font-size:13px}
 .legend-item{display:flex;align-items:center;gap:6px}
 .legend-line{width:24px;height:4px;border-radius:2px}
@@ -117,6 +124,7 @@ tbody tr:hover{background:#fafafa}
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('ruta')">Por Ruta</button>
     <button class="tab-btn" onclick="switchTab('paradero')">Por Paradero</button>
+    <button class="tab-btn" onclick="switchTab('comparar')">Comparar GTFS</button>
   </div>
 
   <!-- TAB RUTA -->
@@ -201,15 +209,19 @@ tbody tr:hover{background:#fafafa}
         <input type="range" id="hour-slider" min="0" max="23" value="8" step="1" oninput="onHourSlide(this.value)">
         <div class="hour-val" id="hour-val">Todas</div>
       </div>
-      <div class="grid2">
+      <div class="stop-map-grid">
+        <div class="card">
+          <div class="card-title">Ubicación exacta del paradero</div>
+          <div id="stop-map"></div>
+        </div>
         <div class="card">
           <div class="card-title">Recorridos que paran aqui</div>
           <div id="routes-at-stop-wrap"></div>
         </div>
-        <div class="card">
-          <div class="card-title">Buses por hora — 24h</div>
-          <div class="chart-wrap"><canvas id="stop-chart"></canvas></div>
-        </div>
+      </div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title">Buses por hora — 24h</div>
+        <div class="chart-wrap"><canvas id="stop-chart"></canvas></div>
       </div>
       <div class="card">
         <div class="card-title" id="arrivals-title">Llegadas</div>
@@ -217,6 +229,35 @@ tbody tr:hover{background:#fafafa}
       </div>
     </div>
     <div id="stop-hint" class="hint">Escribe el nombre o codigo de un paradero para comenzar</div>
+  </div>
+
+
+  <!-- TAB COMPARAR -->
+  <div id="tab-comparar" style="display:none">
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">Comparar GTFS antiguo con el GTFS cargado</div>
+      <div class="compare-upload">
+        <input type="file" id="old-gtfs-input" accept=".zip">
+        <button class="btn-upload" type="button" onclick="document.getElementById('old-gtfs-input').click()" style="margin-top:0">Seleccionar GTFS antiguo</button>
+        <span id="old-gtfs-label" style="color:var(--muted);font-size:13px">No se ha cargado archivo antiguo</span>
+      </div>
+      <div id="compare-hint" class="hint" style="padding:16px;text-align:left">Carga un GTFS antiguo para comparar contra el GTFS actual. Se revisarán recorridos creados, eliminados y modificados, paraderos nuevos y eliminados, cambios de frecuencia y variaciones de viajes.</div>
+    </div>
+    <div id="compare-results" style="display:none">
+      <div class="compare-summary" id="compare-summary"></div>
+      <div class="grid2">
+        <div class="card"><div class="card-title">Recorridos creados</div><div id="routes-created-wrap" class="compare-list"></div></div>
+        <div class="card"><div class="card-title">Recorridos eliminados</div><div id="routes-deleted-wrap" class="compare-list"></div></div>
+      </div>
+      <div class="grid2">
+        <div class="card"><div class="card-title">Recorridos modificados</div><div id="routes-modified-wrap" class="compare-list"></div></div>
+        <div class="card"><div class="card-title">Frecuencias con mayores cambios</div><div id="freq-changes-wrap" class="compare-list"></div></div>
+      </div>
+      <div class="grid2">
+        <div class="card"><div class="card-title">Paraderos nuevos</div><div id="stops-created-wrap" class="compare-list"></div></div>
+        <div class="card"><div class="card-title">Paraderos eliminados</div><div id="stops-deleted-wrap" class="compare-list"></div></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -229,6 +270,8 @@ var DATA = {
 };
 var freqChart = null, stopChart = null;
 var leafMap = null, layerIda = null, layerReg = null, layerStops = null;
+var stopLeafMap = null, stopMarker = null;
+var OLD_GTFS = null;
 var activeStop = null, allHours = true, selectedHour = 8;
 var curMapDir = 0, curStopsDir = 0;
 var _cachedArrivals = [];
@@ -239,6 +282,7 @@ dropzone.addEventListener('dragover', function(e){ e.preventDefault(); dropzone.
 dropzone.addEventListener('dragleave', function(){ dropzone.classList.remove('drag'); });
 dropzone.addEventListener('drop', function(e){ e.preventDefault(); dropzone.classList.remove('drag'); handleFile(e.dataTransfer.files[0]); });
 fileInput.addEventListener('change', function(e){ handleFile(e.target.files[0]); });
+document.addEventListener('change', function(e){ if(e.target && e.target.id==='old-gtfs-input') handleOldGTFS(e.target.files[0]); });
 
 function prog(pct, txt){
   document.getElementById('prog-bar').style.display = 'block';
@@ -462,10 +506,13 @@ function syncDirectionControls(){
 }
 
 function switchTab(tab){
-  document.querySelectorAll('.tab-btn').forEach(function(b,i){b.classList.toggle('active',['ruta','paradero'][i]===tab);});
+  var tabs=['ruta','paradero','comparar'];
+  document.querySelectorAll('.tab-btn').forEach(function(b,i){b.classList.toggle('active',tabs[i]===tab);});
   document.getElementById('tab-ruta').style.display=tab==='ruta'?'block':'none';
   document.getElementById('tab-paradero').style.display=tab==='paradero'?'block':'none';
+  document.getElementById('tab-comparar').style.display=tab==='comparar'?'block':'none';
   if(tab==='ruta' && leafMap) setTimeout(function(){leafMap.invalidateSize();},50);
+  if(tab==='paradero' && stopLeafMap) setTimeout(function(){stopLeafMap.invalidateSize(); renderStopMap(activeStop);},70);
 }
 
 function initMap(){
@@ -602,6 +649,27 @@ function renderStopsTable(){
   w.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Parada</th><th>Primera salida</th><th>Última salida</th></tr></thead><tbody>'+rows+more+'</tbody></table></div>';
 }
 
+
+function initStopMap(){
+  if(stopLeafMap) return;
+  stopLeafMap = L.map('stop-map').setView([-33.45, -70.65], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'&copy; OpenStreetMap contributors', maxZoom:19 }).addTo(stopLeafMap);
+}
+function renderStopMap(stopId){
+  if(!stopId) return;
+  var stop=DATA.stops[stopId];
+  if(!stop || stop.stop_lat===null || stop.stop_lon===null){
+    var el=document.getElementById('stop-map'); if(el) el.innerHTML='<div class="no-data">Este paradero no tiene coordenadas en stops.txt</div>';
+    return;
+  }
+  initStopMap();
+  var lat=+stop.stop_lat, lon=+stop.stop_lon, name=cleanName(stop.stop_name||stopId);
+  if(stopMarker) stopLeafMap.removeLayer(stopMarker);
+  stopMarker = L.marker([lat,lon]).addTo(stopLeafMap).bindPopup('<b>'+esc(name)+'</b><br><small>'+esc(stopId)+'</small><br><small>'+lat.toFixed(6)+', '+lon.toFixed(6)+'</small>');
+  stopLeafMap.setView([lat,lon], 17);
+  setTimeout(function(){ stopLeafMap.invalidateSize(); }, 80);
+}
+
 function setupStopSearch(){
   var inp=document.getElementById('stop-search'), sug=document.getElementById('suggestions');
   inp.addEventListener('input',function(){
@@ -645,6 +713,7 @@ function renderStop(stopId){
   var pathCount = (DATA.pathwaysByStop[stopId]||[]).length;
   var meta = esc(stopId)+(stop.stop_lat!==null?' &nbsp;&middot;&nbsp; '+(+stop.stop_lat).toFixed(5)+', '+(+stop.stop_lon).toFixed(5):'')+(level?' &nbsp;&middot;&nbsp; '+esc(level):'')+(pathCount?' &nbsp;&middot;&nbsp; '+pathCount+' conexiones internas':'');
   document.getElementById('stop-header-info').innerHTML='<div class="stop-pin">&#128205;</div><div><div class="stop-name-big">'+esc(name)+'</div><div class="stop-id-small">'+meta+'</div></div>';
+  renderStopMap(stopId);
   var entries=(DATA.stopTrips[stopId]||[]).filter(function(e){var t=DATA.trips[e.trip_id];return t&&t.service_id===svcId;});
   if(!entries.length){ document.getElementById('routes-at-stop-wrap').innerHTML='<div class="no-data">Sin recorridos para este tipo de día</div>'; document.getElementById('arrivals-wrap').innerHTML='<div class="no-data">Sin datos</div>'; renderStopChart([]); return; }
   var routeMap={};
@@ -670,6 +739,112 @@ function renderArrivals(arrivals){
 }
 function setAllHours(){ allHours=true; document.getElementById('btn-all-hours').classList.add('active'); document.getElementById('hour-val').textContent='Todas'; renderArrivals(_cachedArrivals); }
 function onHourSlide(v){ allHours=false; selectedHour=parseInt(v); document.getElementById('btn-all-hours').classList.remove('active'); document.getElementById('hour-val').textContent=(selectedHour%24)+':00'; renderArrivals(_cachedArrivals); }
+
+
+
+async function parseGTFSForCompare(file){
+  var zip = await JSZip.loadAsync(file);
+  async function readTxt(name){ var f=zip.file(name); return f?await f.async('string'):''; }
+  function parse(txt){ return txt ? Papa.parse(txt.trim(),{header:true,skipEmptyLines:true,dynamicTyping:false}).data : []; }
+  var out={routes:{},routesByShort:{},trips:{},tripsByRoute:{},stops:{},stopTimes:{},frequencies:[]};
+  parse(await readTxt('routes.txt')).forEach(function(r){
+    var rid=String(r.route_id||''); if(!rid) return; r.route_id=rid; out.routes[rid]=r;
+    var key=String(r.route_short_name||rid).trim(); if(key) out.routesByShort[key]=r;
+  });
+  parse(await readTxt('trips.txt')).forEach(function(t){
+    var tid=String(t.trip_id||''); if(!tid) return; t.trip_id=tid; t.route_id=String(t.route_id||''); t.service_id=String(t.service_id||''); t.direction_id=String(t.direction_id==null||t.direction_id===''?0:t.direction_id);
+    out.trips[tid]=t; if(!out.tripsByRoute[t.route_id]) out.tripsByRoute[t.route_id]=[]; out.tripsByRoute[t.route_id].push(t);
+  });
+  parse(await readTxt('stops.txt')).forEach(function(st){ var sid=String(st.stop_id||''); if(!sid) return; st.stop_id=sid; st.stop_lat=csvNum(st.stop_lat,null); st.stop_lon=csvNum(st.stop_lon,null); out.stops[sid]=st; });
+  parse(await readTxt('stop_times.txt')).forEach(function(row){ var tid=String(row.trip_id||''); if(!tid) return; row.trip_id=tid; row.stop_id=String(row.stop_id||''); row.stop_sequence=csvNum(row.stop_sequence); if(!out.stopTimes[tid]) out.stopTimes[tid]=[]; out.stopTimes[tid].push(row); });
+  Object.keys(out.stopTimes).forEach(function(tid){ out.stopTimes[tid].sort(function(a,b){return a.stop_sequence-b.stop_sequence;}); });
+  out.frequencies=parse(await readTxt('frequencies.txt')).map(function(f){ f.trip_id=String(f.trip_id||''); f.headway_secs=csvNum(f.headway_secs); return f; });
+  return out;
+}
+function currentGTFSForCompare(){
+  var out={routes:DATA.routes,routesByShort:{},trips:DATA.trips,tripsByRoute:DATA.tripsByRoute,stops:DATA.stops,stopTimes:DATA.stopTimes,frequencies:DATA.frequencies};
+  Object.values(DATA.routes).forEach(function(r){ var key=String(r.route_short_name||r.route_id).trim(); if(key) out.routesByShort[key]=r; });
+  return out;
+}
+function routeKey(route){ return String(route?(route.route_short_name||route.route_id):'').trim(); }
+function routeName(route){ return route ? ((route.route_short_name||route.route_id)+' — '+(route.route_long_name||'')) : '—'; }
+function avgHeadwayForRoute(feed, route){
+  if(!route) return null;
+  var trips=(feed.tripsByRoute[String(route.route_id)]||[]), ids={}; trips.forEach(function(t){ids[t.trip_id]=true;});
+  var freqs=(feed.frequencies||[]).filter(function(f){return ids[f.trip_id]&&f.headway_secs>0;});
+  if(freqs.length) return Math.round(freqs.reduce(function(a,f){return a+f.headway_secs;},0)/freqs.length/60);
+  var starts=[]; trips.forEach(function(t){ var st=feed.stopTimes[t.trip_id]; if(st&&st.length) starts.push(timeToSecs(st[0].departure_time||st[0].arrival_time||'0:00:00')); });
+  starts.sort(function(a,b){return a-b;}); if(starts.length<2) return null;
+  var diffs=[]; for(var i=1;i<starts.length;i++){ if(starts[i]-starts[i-1]>0) diffs.push(starts[i]-starts[i-1]); }
+  return diffs.length?Math.round(diffs.reduce(function(a,b){return a+b;},0)/diffs.length/60):null;
+}
+function routeStopSignature(feed, route){
+  var trips=(feed.tripsByRoute[String(route.route_id)]||[]), byDir={};
+  trips.forEach(function(t){
+    if(byDir[t.direction_id]) return;
+    var st=feed.stopTimes[t.trip_id]||[]; if(st.length) byDir[t.direction_id]=st.map(function(x){return x.stop_id;}).join('>');
+  });
+  return Object.keys(byDir).sort().map(function(k){return k+':'+byDir[k];}).join('|');
+}
+function routeTripsCount(feed, route){ return (feed.tripsByRoute[String(route.route_id)]||[]).length; }
+function compareFeeds(oldFeed, newFeed){
+  var oldKeys=Object.keys(oldFeed.routesByShort), newKeys=Object.keys(newFeed.routesByShort);
+  var oldSet={},newSet={}; oldKeys.forEach(function(k){oldSet[k]=true;}); newKeys.forEach(function(k){newSet[k]=true;});
+  var created=newKeys.filter(function(k){return !oldSet[k];}).sort(function(a,b){return a.localeCompare(b,undefined,{numeric:true});});
+  var deleted=oldKeys.filter(function(k){return !newSet[k];}).sort(function(a,b){return a.localeCompare(b,undefined,{numeric:true});});
+  var common=newKeys.filter(function(k){return oldSet[k];}).sort(function(a,b){return a.localeCompare(b,undefined,{numeric:true});});
+  var modified=[], freqChanges=[];
+  common.forEach(function(k){
+    var oldR=oldFeed.routesByShort[k], newR=newFeed.routesByShort[k];
+    var oldSig=routeStopSignature(oldFeed,oldR), newSig=routeStopSignature(newFeed,newR);
+    var oldTrips=routeTripsCount(oldFeed,oldR), newTrips=routeTripsCount(newFeed,newR);
+    var oldHw=avgHeadwayForRoute(oldFeed,oldR), newHw=avgHeadwayForRoute(newFeed,newR);
+    var reasons=[];
+    if((oldR.route_long_name||'')!==(newR.route_long_name||'')) reasons.push('nombre/trazado declarado');
+    if(oldSig!==newSig) reasons.push('secuencia de paraderos');
+    if(oldTrips!==newTrips) reasons.push('viajes '+oldTrips+' → '+newTrips);
+    if(oldHw!==null && newHw!==null && Math.abs(newHw-oldHw)>=1) reasons.push('frecuencia promedio '+oldHw+' → '+newHw+' min');
+    if(reasons.length) modified.push({key:k, route:newR, reasons:reasons, oldTrips:oldTrips, newTrips:newTrips, oldHw:oldHw, newHw:newHw});
+    if(oldHw!==null && newHw!==null && oldHw!==newHw) freqChanges.push({key:k,route:newR,oldHw:oldHw,newHw:newHw,delta:newHw-oldHw});
+  });
+  var oldStops={}, newStops={}; Object.keys(oldFeed.stops).forEach(function(k){oldStops[k]=true;}); Object.keys(newFeed.stops).forEach(function(k){newStops[k]=true;});
+  var stopsCreated=Object.keys(newStops).filter(function(k){return !oldStops[k];});
+  var stopsDeleted=Object.keys(oldStops).filter(function(k){return !newStops[k];});
+  freqChanges.sort(function(a,b){return Math.abs(b.delta)-Math.abs(a.delta);});
+  return {created:created,deleted:deleted,modified:modified,freqChanges:freqChanges,stopsCreated:stopsCreated,stopsDeleted:stopsDeleted};
+}
+function tableFromRows(headers, rows){
+  if(!rows.length) return '<div class="no-data">Sin cambios detectados</div>';
+  return '<div class="tbl-wrap"><table><thead><tr>'+headers.map(function(h){return '<th>'+esc(h)+'</th>';}).join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody></table></div>';
+}
+function renderCompare(cmp, oldFeed, newFeed){
+  document.getElementById('compare-results').style.display='block';
+  document.getElementById('compare-hint').style.display='none';
+  document.getElementById('compare-summary').innerHTML=[
+    ['Rutas creadas',cmp.created.length],['Rutas eliminadas',cmp.deleted.length],['Rutas modificadas',cmp.modified.length],['Paraderos nuevos',cmp.stopsCreated.length],['Paraderos eliminados',cmp.stopsDeleted.length],['Cambios frecuencia',cmp.freqChanges.length]
+  ].map(function(x){return '<div class="stat-card"><div class="lbl">'+x[0]+'</div><div class="val">'+x[1]+'</div></div>';}).join('');
+  document.getElementById('routes-created-wrap').innerHTML=tableFromRows(['Ruta','Nombre','Viajes','Frecuencia prom.'], cmp.created.map(function(k){ var r=newFeed.routesByShort[k]; var hw=avgHeadwayForRoute(newFeed,r); return '<tr><td><b>'+esc(k)+'</b></td><td>'+esc(r.route_long_name||'')+'</td><td>'+routeTripsCount(newFeed,r)+'</td><td>'+(hw?hw+' min':'—')+'</td></tr>'; }));
+  document.getElementById('routes-deleted-wrap').innerHTML=tableFromRows(['Ruta','Nombre','Viajes','Frecuencia prom.'], cmp.deleted.map(function(k){ var r=oldFeed.routesByShort[k]; var hw=avgHeadwayForRoute(oldFeed,r); return '<tr><td><b>'+esc(k)+'</b></td><td>'+esc(r.route_long_name||'')+'</td><td>'+routeTripsCount(oldFeed,r)+'</td><td>'+(hw?hw+' min':'—')+'</td></tr>'; }));
+  document.getElementById('routes-modified-wrap').innerHTML=tableFromRows(['Ruta','Cambios detectados'], cmp.modified.slice(0,80).map(function(m){ return '<tr><td><b>'+esc(m.key)+'</b></td><td>'+esc(m.reasons.join('; '))+'</td></tr>'; }));
+  document.getElementById('freq-changes-wrap').innerHTML=tableFromRows(['Ruta','Antes','Ahora','Cambio'], cmp.freqChanges.slice(0,80).map(function(f){ var cls=f.delta<0?'delta-up':'delta-down'; var label=f.delta<0?'mejora ':'empeora '; return '<tr><td><b>'+esc(f.key)+'</b></td><td>'+f.oldHw+' min</td><td>'+f.newHw+' min</td><td class="'+cls+'">'+label+(f.delta>0?'+':'')+f.delta+' min</td></tr>'; }));
+  function stopRows(ids, feed){ return ids.slice(0,150).map(function(id){ var st=feed.stops[id]||{}; return '<tr><td><b>'+esc(id)+'</b></td><td>'+esc(cleanName(st.stop_name||''))+'</td><td>'+(st.stop_lat!==null?(+st.stop_lat).toFixed(5)+', '+(+st.stop_lon).toFixed(5):'—')+'</td></tr>'; }); }
+  document.getElementById('stops-created-wrap').innerHTML=tableFromRows(['Código','Nombre','Coordenadas'], stopRows(cmp.stopsCreated,newFeed));
+  document.getElementById('stops-deleted-wrap').innerHTML=tableFromRows(['Código','Nombre','Coordenadas'], stopRows(cmp.stopsDeleted,oldFeed));
+}
+async function handleOldGTFS(file){
+  if(!file) return;
+  document.getElementById('old-gtfs-label').textContent='Procesando '+file.name+'...';
+  try{
+    OLD_GTFS = await parseGTFSForCompare(file);
+    var newFeed=currentGTFSForCompare();
+    var cmp=compareFeeds(OLD_GTFS,newFeed);
+    document.getElementById('old-gtfs-label').textContent='GTFS antiguo cargado: '+file.name;
+    renderCompare(cmp, OLD_GTFS, newFeed);
+  }catch(err){
+    console.error(err);
+    document.getElementById('old-gtfs-label').textContent='No se pudo leer el GTFS antiguo. Revisa que sea un .zip GTFS válido.';
+  }
+}
 
 </script>
 </body>
