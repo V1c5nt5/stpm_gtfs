@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Horarios RED — GTFS Viewer</title>
-<!-- v2.0.0 -->
+<!-- v2.1.1 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -24,7 +24,7 @@ header h1{font-size:17px;font-weight:600;flex:1}
 .upload-icon{font-size:44px;margin-bottom:14px}
 .upload-zone h2{font-size:17px;margin-bottom:6px}
 .upload-zone p{color:var(--muted);font-size:14px}
-.github-loader{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:end;margin-top:18px;padding:14px;border:1px solid var(--border);border-radius:var(--rsm);background:#fafafa;cursor:default}
+.github-loader{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:end;margin-top:18px;padding:14px;border:1px solid var(--border);border-radius:var(--rsm);background:#fafafa;cursor:default}
 .github-loader .btn-upload{grid-column:1/-1;width:100%;margin-top:0;white-space:normal}
 .manual-loader{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px}
 .manual-loader .btn-upload{width:100%;margin-top:0;text-align:center;padding-left:10px;padding-right:10px;white-space:normal}
@@ -125,6 +125,16 @@ tbody tr:hover{background:#fafafa}
 #tab-paradero .filters .fg:nth-child(3){order:3!important}
 @media(max-width:620px){.github-loader,.manual-loader{grid-template-columns:1fr!important}.btn-upload{padding-left:10px!important;padding-right:10px!important}#tab-ruta .filters .fg,#tab-paradero .filters .fg{width:100%!important;min-width:0!important;flex:1 1 100%!important}}
 
+.param-status{font-size:13px;color:var(--muted);margin-top:8px}
+.param-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.param-sheet-note{font-size:12px;color:var(--muted);margin-top:6px}
+.param-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
+.param-cell-muted{color:var(--muted);font-size:12px}
+.param-table th{white-space:nowrap}
+.param-table td{white-space:nowrap}
+.param-table .sticky-col{position:sticky;left:0;background:#fff;z-index:1}
+@media(max-width:620px){.param-actions .btn-upload{width:100%;margin-top:0}.param-table .sticky-col{position:static}}
+
 </style>
 </head>
 <body>
@@ -154,6 +164,10 @@ tbody tr:hover{background:#fafafa}
         <label>DECO</label>
         <select id="github-deco-select"><option value="">Buscando DECO...</option></select>
       </div>
+      <div class="fg" style="text-align:left;flex:1;min-width:190px">
+        <label>Consolidado parámetros</label>
+        <select id="param-start-select" onchange="syncParamSelects('start')"><option value="">Buscando consolidado...</option></select>
+      </div>
       <button class="btn-upload" type="button" onclick="loadSelectedMainGTFS()">Cargar</button>
     </div>
 
@@ -175,6 +189,7 @@ tbody tr:hover{background:#fafafa}
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('ruta')">Por Ruta</button>
     <button class="tab-btn" onclick="switchTab('paradero')">Por Paradero</button>
+    <button class="tab-btn" onclick="switchTab('parametros')">Parámetros</button>
     <button class="tab-btn" onclick="switchTab('comparar')">Comparar GTFS</button>
   </div>
   <div class="data-age" id="data-age"></div>
@@ -291,6 +306,56 @@ tbody tr:hover{background:#fafafa}
   </div>
 
 
+
+  <!-- TAB PARAMETROS -->
+  <div id="tab-parametros" style="display:none">
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">Consolidado de parámetros</div>
+      <div class="filters" style="margin-bottom:10px">
+        <div class="fg" style="min-width:250px;flex:1">
+          <label>Archivo</label>
+          <select id="param-file-select" onchange="syncParamSelects('tab')"><option value="">Buscando consolidado...</option></select>
+        </div>
+        <div class="fg" style="min-width:250px;flex:1">
+          <label>Indicador / período</label>
+          <select id="param-sheet-select"><option value="">Carga el consolidado</option></select>
+        </div>
+        <div class="param-actions">
+          <button class="btn-upload" type="button" onclick="loadSelectedParams()" style="margin-top:0">Cargar parámetros</button>
+          <button class="btn-upload secondary-btn" type="button" onclick="syncParamRouteFromGTFS()" style="margin-top:0">Usar ruta GTFS</button>
+        </div>
+      </div>
+      <div class="param-status" id="param-status">El consolidado se selecciona en la pantalla de inicio y se descarga solo al abrir esta sección o al presionar cargar.</div>
+    </div>
+
+    <div id="param-panel" style="display:none">
+      <div class="filters">
+        <div class="fg" style="min-width:170px">
+          <label>Unidad de negocio</label>
+          <select id="param-operator"></select>
+        </div>
+        <div class="fg" style="min-width:170px">
+          <label>Sentido</label>
+          <select id="param-sentido"></select>
+        </div>
+        <div class="fg" style="min-width:150px">
+          <label>Tipo</label>
+          <select id="param-tipo"></select>
+        </div>
+        <div class="fg" style="flex:1;min-width:220px">
+          <label>Buscar servicio</label>
+          <input type="text" id="param-route-search" placeholder="Código usuario o TS, ej: 101, B01..." autocomplete="off">
+        </div>
+      </div>
+      <div class="param-summary" id="param-summary"></div>
+      <div class="card">
+        <div class="card-title" id="param-table-title">Detalle</div>
+        <div class="param-sheet-note" id="param-sheet-note"></div>
+        <div id="param-table-wrap"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- TAB COMPARAR -->
   <div id="tab-comparar" style="display:none">
     <div class="card" style="margin-bottom:14px">
@@ -341,11 +406,12 @@ var GITHUB_BRANCH = 'main';
 var GITHUB_DATA_API = 'https://api.github.com/repos/'+GITHUB_OWNER+'/'+GITHUB_REPO+'/contents/data?ref='+GITHUB_BRANCH;
 var GITHUB_GTFS_FILES = [];
 var GITHUB_DECO_FILES = [];
+var GITHUB_PARAM_FILES = [];
 var MANUAL_GTFS_FILE = null, MANUAL_DECO_FILE = null;
 function freshData(){
   return {
     agency:{}, routes:{}, trips:{}, frequencies:[], frequenciesByTrip:{}, stopTimes:{}, stops:{}, stopIndex:{}, stopTrips:{}, shapes:{},
-    calendar:{}, calendarDates:[], feedInfo:null, levels:{}, pathways:[], pathwaysByStop:{}, serviceIds:[], tripsByRoute:{}, tripsByService:{}, tripsByStop:{}, decoRows:[], decoByRoute:{}, operators:[], sourceNames:{gtfs:'',deco:''}, sourceDates:{gtfs:null,deco:null}
+    calendar:{}, calendarDates:[], feedInfo:null, levels:{}, pathways:[], pathwaysByStop:{}, serviceIds:[], tripsByRoute:{}, tripsByService:{}, tripsByStop:{}, decoRows:[], decoByRoute:{}, operators:[], sourceNames:{gtfs:'',deco:'',param:''}, sourceDates:{gtfs:null,deco:null,param:null}
   };
 }
 var freqChart = null, stopChart = null;
@@ -355,6 +421,10 @@ var OLD_GTFS = null;
 var activeStop = null, selectedHour = 8;
 var curMapDir = 0, curStopsDir = 0;
 var _cachedArrivals = [];
+var PARAMS = {
+  file:null, zip:null, sheets:[], sharedStrings:null, cache:{}, activeSheet:null, rows:[], intervals:[], metric:'', sourceDate:null, loading:false
+};
+
 
 var dropzone = document.getElementById('dropzone');
 var fileInput = document.getElementById('file-input');
@@ -374,21 +444,28 @@ async function initGitHubGTFSList(){
   var fallbackDeco=[
     {name:'DECO_VIGENTES_20260529.zip', download_url:'https://raw.githubusercontent.com/V1c5nt5/stpm_gtfs/main/data/DECO_VIGENTES_20260529.zip'}
   ];
+  var fallbackParams=[
+    {name:'15-Consolidado-Parametros-2026-05-30.xlsx', download_url:'https://raw.githubusercontent.com/V1c5nt5/stpm_gtfs/main/data/15-Consolidado-Parametros-2026-05-30.xlsx'}
+  ];
   try{
     var res=await fetch(GITHUB_DATA_API,{cache:'no-store'});
     if(!res.ok) throw new Error('GitHub API '+res.status);
     var files=await res.json();
-    var zips=files.filter(function(f){return f.type==='file' && /\.(zip|csv)$/i.test(f.name);})
+    var dataFiles=files.filter(function(f){return f.type==='file' && /\.(zip|csv|xlsx)$/i.test(f.name);})
       .map(function(f){return {name:f.name, download_url:f.download_url || ('https://raw.githubusercontent.com/'+GITHUB_OWNER+'/'+GITHUB_REPO+'/'+GITHUB_BRANCH+'/data/'+encodeURIComponent(f.name))};})
       .sort(function(a,b){return a.name.localeCompare(b.name,undefined,{numeric:true});});
+    var zips=dataFiles.filter(function(f){return /\.(zip|csv)$/i.test(f.name);});
     GITHUB_GTFS_FILES=zips.filter(function(f){return /gtfs/i.test(f.name);});
     GITHUB_DECO_FILES=zips.filter(function(f){return /deco/i.test(f.name);});
+    GITHUB_PARAM_FILES=dataFiles.filter(function(f){return /consolidado.*param/i.test(f.name) && /\.xlsx$/i.test(f.name);});
     if(!GITHUB_GTFS_FILES.length) GITHUB_GTFS_FILES=fallbackGtfs;
     if(!GITHUB_DECO_FILES.length) GITHUB_DECO_FILES=fallbackDeco;
+    if(!GITHUB_PARAM_FILES.length) GITHUB_PARAM_FILES=fallbackParams;
   }catch(err){
     console.warn('No se pudo leer /data desde GitHub. Se usará lista base.',err);
     GITHUB_GTFS_FILES=fallbackGtfs;
     GITHUB_DECO_FILES=fallbackDeco;
+    GITHUB_PARAM_FILES=fallbackParams;
   }
   fillGitHubSelects();
 }
@@ -406,6 +483,16 @@ function fillGitHubSelects(){
   fillOneSelect('github-deco-select',GITHUB_DECO_FILES,'Sin DECO disponible',Math.max(0,GITHUB_DECO_FILES.length-1));
   fillOneSelect('compare-base-select',GITHUB_GTFS_FILES,'Sin GTFS disponibles',0);
   fillOneSelect('compare-target-select',GITHUB_GTFS_FILES,'Sin GTFS disponibles',Math.max(0,GITHUB_GTFS_FILES.length-1));
+  fillOneSelect('param-start-select',GITHUB_PARAM_FILES,'Sin consolidado disponible',Math.max(0,GITHUB_PARAM_FILES.length-1));
+  fillOneSelect('param-file-select',GITHUB_PARAM_FILES,'Sin consolidado disponible',Math.max(0,GITHUB_PARAM_FILES.length-1));
+  syncParamSelects('start');
+}
+function syncParamSelects(source){
+  var start=document.getElementById('param-start-select');
+  var tab=document.getElementById('param-file-select');
+  if(!start || !tab) return;
+  if(source==='tab' && tab.value) start.value=tab.value;
+  else if(start.value) tab.value=start.value;
 }
 async function fetchGTFSFileFromURL(url, name){
   var res=await fetch(url,{cache:'no-store'});
@@ -415,9 +502,11 @@ async function fetchGTFSFileFromURL(url, name){
   catch(e){ blob.name=name; return blob; }
 }
 async function loadSelectedMainGTFS(){
-  var sel=document.getElementById('github-main-select'), decoSel=document.getElementById('github-deco-select');
+  var sel=document.getElementById('github-main-select'), decoSel=document.getElementById('github-deco-select'), paramSel=document.getElementById('param-start-select');
   if(!sel || !sel.value){ alert('No hay GTFS seleccionado.'); return; }
   if(!decoSel || !decoSel.value){ alert('Debes seleccionar un DECO para cargar el sistema.'); return; }
+  if(!paramSel || !paramSel.value){ alert('Debes seleccionar el consolidado de parámetros.'); return; }
+  syncParamSelects('start');
   var name=sel.options[sel.selectedIndex].dataset.name || sel.options[sel.selectedIndex].textContent || 'gtfs.zip';
   var decoName=decoSel.options[decoSel.selectedIndex].dataset.name || decoSel.options[decoSel.selectedIndex].textContent || 'deco.zip';
   prog(3,'Descargando GTFS y DECO desde GitHub...');
@@ -565,7 +654,7 @@ function parseGTFSInWorker(file){
       reject(new Error('Este navegador no soporta Web Workers.'));
       return;
     }
-    var worker = new Worker('gtfs-worker.js');
+    var worker = new Worker(new URL('gtfs-worker.js', window.location.href));
     var done=false;
     worker.onmessage=function(e){
       var msg=e.data||{};
@@ -711,14 +800,278 @@ function syncDirectionControls(){
   setStopsDir(curStopsDir, true);
 }
 
+
+function setParamStatus(txt){
+  var el=document.getElementById('param-status');
+  if(el) el.textContent=txt;
+}
+function ensureParamsLoaded(){
+  if(PARAMS.sheets && PARAMS.sheets.length) return;
+  var sel=document.getElementById('param-file-select');
+  if(sel && sel.value && !PARAMS.loading) loadSelectedParams();
+}
+function xlsxColIndex(ref){
+  var m=String(ref||'').match(/[A-Z]+/); if(!m) return 0;
+  var s=m[0], n=0;
+  for(var i=0;i<s.length;i++) n=n*26+(s.charCodeAt(i)-64);
+  return n-1;
+}
+function xlsxText(xmlNode, tag){
+  var a=xmlNode.getElementsByTagName(tag);
+  return a && a[0] ? a[0].textContent : '';
+}
+function xlsxRelPath(base, target){
+  target=String(target||'');
+  if(target.charAt(0)==='/') return target.replace(/^\//,'');
+  return base.replace(/[^\/]+$/,'')+target;
+}
+function parseSharedStringsXml(xml){
+  if(!xml) return [];
+  var doc=new DOMParser().parseFromString(xml,'application/xml');
+  var si=doc.getElementsByTagName('si'), out=[];
+  for(var i=0;i<si.length;i++){
+    var texts=si[i].getElementsByTagName('t'), s='';
+    for(var j=0;j<texts.length;j++) s+=texts[j].textContent || '';
+    out.push(s);
+  }
+  return out;
+}
+function xlsxCellValue(cell, sharedStrings){
+  var t=cell.getAttribute('t') || '';
+  if(t==='inlineStr'){
+    var inline=cell.getElementsByTagName('is')[0];
+    return inline ? xlsxText(inline,'t') : '';
+  }
+  var v=cell.getElementsByTagName('v')[0];
+  var raw=v ? v.textContent : '';
+  if(t==='s') return sharedStrings[Number(raw)] || '';
+  if(t==='b') return raw==='1' ? 'Sí' : 'No';
+  return raw;
+}
+function excelTimeLabel(v){
+  if(v===null || v===undefined || v==='') return '';
+  var n=Number(v);
+  if(!isNaN(n) && n>=0 && n<1){
+    var total=Math.round(n*86400), h=Math.floor(total/3600)%24, m=Math.floor((total%3600)/60);
+    return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+  }
+  return String(v);
+}
+function paramNumber(v){
+  if(v===null || v===undefined || v==='') return null;
+  var n=Number(String(v).replace(',','.'));
+  return isNaN(n) ? null : n;
+}
+function sheetMetricFromName(name){
+  var m=String(name||'').match(/^([A-Za-zÁÉÍÓÚÑáéíóúñ ]+)\(/);
+  return m ? m[1].trim() : String(name||'');
+}
+function sheetPeriodFromName(name){
+  var m=String(name||'').match(/\(([^)]+)\)/);
+  return m ? m[1].trim() : '';
+}
+async function loadWorkbookMeta(fileObj){
+  var res=await fetch(fileObj.download_url,{cache:'no-store'});
+  if(!res.ok) throw new Error('No se pudo descargar el consolidado ('+res.status+').');
+  var blob=await res.blob();
+  var zip=await JSZip.loadAsync(blob);
+  var wbXml=await zip.file('xl/workbook.xml').async('string');
+  var relXml=await zip.file('xl/_rels/workbook.xml.rels').async('string');
+  var wbDoc=new DOMParser().parseFromString(wbXml,'application/xml');
+  var relDoc=new DOMParser().parseFromString(relXml,'application/xml');
+  var rels={};
+  Array.prototype.forEach.call(relDoc.getElementsByTagName('Relationship'),function(r){
+    rels[r.getAttribute('Id')]=xlsxRelPath('xl/workbook.xml',r.getAttribute('Target'));
+  });
+  var sheets=[];
+  Array.prototype.forEach.call(wbDoc.getElementsByTagName('sheet'),function(s){
+    var rid=s.getAttribute('r:id') || s.getAttribute('id');
+    var name=s.getAttribute('name') || '';
+    if(name.toLowerCase()==='diccio') return;
+    sheets.push({name:name, path:rels[rid], metric:sheetMetricFromName(name), period:sheetPeriodFromName(name)});
+  });
+  PARAMS.file=fileObj; PARAMS.zip=zip; PARAMS.sheets=sheets; PARAMS.cache={}; PARAMS.sharedStrings=null;
+  PARAMS.sourceDate=extractDateFromName(fileObj.name);
+  DATA.sourceNames.param=fileObj.name;
+  DATA.sourceDates.param=PARAMS.sourceDate;
+}
+async function getSharedStrings(){
+  if(PARAMS.sharedStrings) return PARAMS.sharedStrings;
+  var f=PARAMS.zip.file('xl/sharedStrings.xml');
+  PARAMS.sharedStrings=f ? parseSharedStringsXml(await f.async('string')) : [];
+  return PARAMS.sharedStrings;
+}
+async function parseParameterSheet(sheetName){
+  if(PARAMS.cache[sheetName]) return PARAMS.cache[sheetName];
+  var sheet=PARAMS.sheets.find(function(s){return s.name===sheetName;});
+  if(!sheet || !sheet.path) throw new Error('No se encontró la hoja seleccionada.');
+  var xml=await PARAMS.zip.file(sheet.path).async('string');
+  var doc=new DOMParser().parseFromString(xml,'application/xml');
+  var shared=await getSharedStrings();
+  var matrix=[];
+  Array.prototype.forEach.call(doc.getElementsByTagName('row'),function(row){
+    var rIndex=Number(row.getAttribute('r')||0)-1;
+    if(!matrix[rIndex]) matrix[rIndex]=[];
+    Array.prototype.forEach.call(row.getElementsByTagName('c'),function(c){
+      matrix[rIndex][xlsxColIndex(c.getAttribute('r'))]=xlsxCellValue(c,shared);
+    });
+  });
+  var metric=String((matrix[0] && (matrix[0][1] || matrix[0][0])) || sheet.metric || '').trim();
+  var dayRow=matrix[1]||[], bandRow=matrix[2]||[], startRow=matrix[3]||[], endRow=matrix[4]||[];
+  var intervals=[], lastDay='';
+  for(var col=5; col<Math.max(dayRow.length,bandRow.length,startRow.length,endRow.length); col++){
+    if(dayRow[col]) lastDay=String(dayRow[col]);
+    intervals.push({
+      col:col,
+      day:lastDay || '',
+      band:String(bandRow[col]||'').trim(),
+      start:excelTimeLabel(startRow[col]),
+      end:excelTimeLabel(endRow[col])
+    });
+  }
+  var rows=[];
+  for(var i=5;i<matrix.length;i++){
+    var r=matrix[i]||[];
+    if(!r[0] && !r[1] && !r[2]) continue;
+    rows.push({
+      unidad:String(r[0]||'').trim(),
+      codigoTs:String(r[1]||'').trim(),
+      codigoUsuario:String(r[2]||'').trim(),
+      sentido:String(r[3]||'').trim(),
+      tipo:String(r[4]||'').trim(),
+      values:intervals.map(function(it){return r[it.col]===undefined?'':r[it.col];})
+    });
+  }
+  var parsed={sheet:sheet, metric:metric, intervals:intervals, rows:rows};
+  PARAMS.cache[sheetName]=parsed;
+  return parsed;
+}
+function fillParamSheets(){
+  var sel=document.getElementById('param-sheet-select'); if(!sel) return;
+  sel.innerHTML='';
+  PARAMS.sheets.forEach(function(s,i){
+    var o=document.createElement('option');
+    o.value=s.name; o.textContent=s.metric+' — '+s.period;
+    sel.appendChild(o);
+    if(i===0) o.selected=true;
+  });
+}
+async function loadSelectedParams(){
+  syncParamSelects('tab');
+  var sel=document.getElementById('param-file-select');
+  if(!sel || !sel.value){ alert('No hay consolidado seleccionado.'); return; }
+  var fileObj={name:(sel.options[sel.selectedIndex].dataset.name || sel.options[sel.selectedIndex].textContent), download_url:sel.value};
+  PARAMS.loading=true; setParamStatus('Descargando consolidado de parámetros...');
+  try{
+    await loadWorkbookMeta(fileObj);
+    fillParamSheets();
+    setParamStatus('Consolidado cargado. Selecciona indicador/período o usa filtros.');
+    await renderSelectedParamSheet();
+  }catch(err){
+    console.error(err);
+    setParamStatus('No se pudo cargar el consolidado: '+(err.message||err));
+  }finally{
+    PARAMS.loading=false;
+  }
+}
+async function renderSelectedParamSheet(){
+  if(!PARAMS.sheets.length) return;
+  var sheetSel=document.getElementById('param-sheet-select');
+  var sheetName=sheetSel && sheetSel.value ? sheetSel.value : PARAMS.sheets[0].name;
+  setParamStatus('Leyendo hoja seleccionada...');
+  var parsed=await parseParameterSheet(sheetName);
+  PARAMS.activeSheet=sheetName; PARAMS.rows=parsed.rows; PARAMS.intervals=parsed.intervals; PARAMS.metric=parsed.metric;
+  fillParamFilters(parsed);
+  document.getElementById('param-panel').style.display='block';
+  renderParamsTable();
+  setParamStatus('Parámetros listos: '+parsed.rows.length+' filas en '+parsed.sheet.name+'.');
+}
+function fillParamSelect(id, values, allLabel){
+  var sel=document.getElementById(id); if(!sel) return;
+  var old=sel.value; sel.innerHTML='';
+  var all=document.createElement('option'); all.value='__all'; all.textContent=allLabel; sel.appendChild(all);
+  values.forEach(function(v){ var o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); });
+  sel.value=values.indexOf(old)!==-1 ? old : '__all';
+}
+function fillParamFilters(parsed){
+  fillParamSelect('param-operator', unique(parsed.rows.map(function(r){return r.unidad;})).sort(), 'Todas');
+  fillParamSelect('param-sentido', unique(parsed.rows.map(function(r){return r.sentido;})).sort(), 'Todos');
+  fillParamSelect('param-tipo', unique(parsed.rows.map(function(r){return r.tipo;})).sort(), 'Todos');
+}
+function filteredParamRows(){
+  var op=document.getElementById('param-operator').value;
+  var sentido=document.getElementById('param-sentido').value;
+  var tipo=document.getElementById('param-tipo').value;
+  var q=normalizeOpKey(document.getElementById('param-route-search').value);
+  return PARAMS.rows.filter(function(r){
+    if(op!=='__all' && r.unidad!==op) return false;
+    if(sentido!=='__all' && r.sentido!==sentido) return false;
+    if(tipo!=='__all' && r.tipo!==tipo) return false;
+    if(q){
+      var hay=normalizeOpKey(r.codigoUsuario+' '+r.codigoTs);
+      if(hay.indexOf(q)===-1) return false;
+    }
+    return true;
+  });
+}
+function renderParamsTable(){
+  var wrap=document.getElementById('param-table-wrap');
+  var title=document.getElementById('param-table-title');
+  var note=document.getElementById('param-sheet-note');
+  var summary=document.getElementById('param-summary');
+  if(!wrap || !PARAMS.rows.length) return;
+  var rows=filteredParamRows();
+  var intervals=PARAMS.intervals || [];
+  var maxRows=180, shown=rows.slice(0,maxRows);
+  var nums=[];
+  rows.forEach(function(r){ r.values.forEach(function(v){ var n=paramNumber(v); if(n!==null) nums.push(n); }); });
+  var avg=nums.length ? (nums.reduce(function(a,b){return a+b;},0)/nums.length) : null;
+  if(title) title.textContent='Detalle — '+(PARAMS.metric || PARAMS.activeSheet || '');
+  if(note) note.textContent='Se muestran hasta '+maxRows+' filas para evitar sobrecargar el navegador. Usa los filtros para acotar resultados.';
+  if(summary){
+    summary.innerHTML=
+      '<div class="stat-card"><div class="lbl">Filas filtradas</div><div class="val">'+rows.length+'</div></div>'+
+      '<div class="stat-card"><div class="lbl">Intervalos</div><div class="val">'+intervals.length+'</div></div>'+
+      '<div class="stat-card"><div class="lbl">Promedio visible</div><div class="val">'+(avg===null?'—':avg.toFixed(2))+'</div></div>'+
+      '<div class="stat-card"><div class="lbl">Archivo</div><div class="val" style="font-size:13px">'+esc(DATA.sourceNames.param||'—')+'</div></div>';
+  }
+  if(!rows.length){ wrap.innerHTML='<div class="no-data">No hay filas con los filtros actuales.</div>'; return; }
+  var head='<tr><th class="sticky-col">Código usuario</th><th>Código TS</th><th>UN</th><th>Sentido</th><th>Tipo</th>'+
+    intervals.map(function(it){ return '<th>'+esc(it.day)+'<br><span class="param-cell-muted">'+esc(it.band)+' '+esc(it.start)+'-'+esc(it.end)+'</span></th>'; }).join('')+'</tr>';
+  var body=shown.map(function(r){
+    return '<tr><td class="sticky-col" style="font-weight:600">'+esc(r.codigoUsuario)+'</td><td>'+esc(r.codigoTs)+'</td><td>'+esc(r.unidad)+'</td><td>'+esc(r.sentido)+'</td><td>'+esc(r.tipo)+'</td>'+
+      r.values.map(function(v){ return '<td>'+esc(v===''?'—':v)+'</td>'; }).join('')+'</tr>';
+  }).join('');
+  var more=rows.length>maxRows ? '<div class="param-status">Hay '+(rows.length-maxRows)+' filas adicionales no renderizadas.</div>' : '';
+  wrap.innerHTML='<div class="tbl-wrap"><table class="param-table"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'+more;
+}
+function syncParamRouteFromGTFS(){
+  var sel=document.getElementById('sel-route'), inp=document.getElementById('param-route-search');
+  if(!sel || !sel.value || !inp) return;
+  var r=DATA.routes[sel.value];
+  inp.value = r ? (r.route_short_name || r.route_id || '') : '';
+  if(document.getElementById('tab-parametros').style.display==='none') switchTab('parametros');
+  else renderParamsTable();
+}
+document.addEventListener('change',function(e){
+  if(e.target && e.target.id==='param-sheet-select') renderSelectedParamSheet();
+  if(e.target && /^(param-operator|param-sentido|param-tipo)$/.test(e.target.id)) renderParamsTable();
+});
+document.addEventListener('input',function(e){
+  if(e.target && e.target.id==='param-route-search') renderParamsTable();
+});
+
+
 function switchTab(tab){
-  var tabs=['ruta','paradero','comparar'];
+  var tabs=['ruta','paradero','parametros','comparar'];
   document.querySelectorAll('.tab-btn').forEach(function(b,i){b.classList.toggle('active',tabs[i]===tab);});
   document.getElementById('tab-ruta').style.display=tab==='ruta'?'block':'none';
   document.getElementById('tab-paradero').style.display=tab==='paradero'?'block':'none';
+  document.getElementById('tab-parametros').style.display=tab==='parametros'?'block':'none';
   document.getElementById('tab-comparar').style.display=tab==='comparar'?'block':'none';
   if(tab==='ruta' && leafMap) setTimeout(function(){leafMap.invalidateSize();},50);
   if(tab==='paradero' && stopLeafMap) setTimeout(function(){stopLeafMap.invalidateSize(); renderStopMap(activeStop);},70);
+  if(tab==='parametros') ensureParamsLoaded();
 }
 
 function initMap(){
