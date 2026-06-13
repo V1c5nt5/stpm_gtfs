@@ -124,9 +124,15 @@ tbody tr:hover{background:#fafafa}
 @media(max-width:620px){.param-actions .btn-upload{width:100%;margin-top:0}.param-table .sticky-col{position:static}}
 
 
-/* v2.3.0 — control PO / GTFS */
+/* v2.3.1 — control PO / GTFS */
 .status-ok{color:#2e7d32;font-weight:600}
 .status-warn{color:#e65100;font-weight:600}
 .status-bad{color:#c62828;font-weight:600}
 .compare-list table td{vertical-align:top}
 .po-tag{display:inline-block;padding:2px 7px;border-radius:12px;background:#f1f1f1;color:#444;font-size:12px;font-weight:600}
+
+.control-empty{padding:18px;color:var(--muted);font-size:14px;background:#fafafa;border:1px dashed var(--border);border-radius:var(--rsm)}
+.control-actions{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px}
+.control-actions .all-btn{margin-top:0}
+.compare-list{max-height:390px;overflow:auto}
+.compare-list td small{color:var(--muted)}

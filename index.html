@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Horarios RED — GTFS Viewer</title>
-<!-- v2.3.0 -->
+<!-- v2.3.1 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="assets/css/app.css?v=2.3.0">
+<link rel="stylesheet" href="assets/css/app.css?v=2.3.1">
 
 </head>
 <body>
@@ -239,13 +239,16 @@
   <!-- TAB CONTROL PO / GTFS -->
   <div id="tab-control" style="display:none">
     <div class="card" style="margin-bottom:14px">
-      <div class="card-title">Control PO vigente vs GTFS / DECO</div>
+      <div class="card-title">Control operativo: PO / Parámetros / GTFS / DECO</div>
       <div class="compare-upload">
         <input type="file" id="po-file-input" accept=".zip" style="display:none">
         <button class="btn-upload" type="button" onclick="document.getElementById('po-file-input').click()" style="margin-top:0">Cargar PO vigente ZIP</button>
-        <button class="btn-upload secondary-btn" type="button" onclick="runPoComparison()" style="margin-top:0">Recalcular comparación</button>
-        <span id="po-status" style="color:var(--muted);font-size:13px">Carga manual del ZIP PO vigente. Se leen Anexo 1, Anexo 3 y Registro de paradas.</span>
+        <button class="btn-upload secondary-btn" type="button" onclick="document.getElementById('param-manual-input').click()" style="margin-top:0">Cargar XLSX parámetros</button>
+        <button class="btn-upload secondary-btn" type="button" onclick="runPoComparison()" style="margin-top:0">Recalcular control</button>
+        <button class="btn-upload secondary-btn" type="button" onclick="exportControlVisibleCSV()" style="margin-top:0">Exportar CSV</button>
       </div>
+      <div id="po-status" class="param-status">Primero carga GTFS + DECO. Luego puedes subir manualmente el ZIP PO vigente y/o el consolidado XLSX de parámetros.</div>
+      <div class="param-sheet-note">El control cruza empresas, recorridos, sentidos, salidas por media hora y secuencias de paradas. No agrega librerías nuevas.</div>
     </div>
 
     <div id="po-panel" style="display:none">
@@ -276,20 +279,26 @@
           <div id="po-company-wrap" class="compare-list"></div>
         </div>
         <div class="card">
-          <div class="card-title">Recorridos PO vs GTFS / DECO</div>
+          <div class="card-title">Recorridos: PO / GTFS / DECO</div>
           <div id="po-routes-wrap" class="compare-list"></div>
         </div>
       </div>
 
       <div class="grid2">
         <div class="card">
-          <div class="card-title">Parámetros operacionales: salidas PO vs GTFS</div>
+          <div class="card-title">PO Anexo 3: salidas por media hora vs GTFS</div>
           <div id="po-params-wrap" class="compare-list"></div>
         </div>
         <div class="card">
           <div class="card-title">Registro de paradas PO vs GTFS</div>
           <div id="po-stops-wrap" class="compare-list"></div>
         </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="card-title">Consolidado de parámetros cargado vs GTFS</div>
+        <div class="param-sheet-note" id="param-control-note">Carga un XLSX de parámetros desde la pestaña Parámetros o desde el botón superior.</div>
+        <div id="param-gtfs-wrap" class="compare-list"></div>
       </div>
     </div>
   </div>
@@ -335,6 +344,6 @@
   </div>
 </div>
 
-<script src="assets/js/app.js?v=2.3.0"></script>
+<script src="assets/js/app.js?v=2.3.1"></script>
 </body>
 </html>

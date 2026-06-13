@@ -1742,3 +1742,514 @@ async function renderSelectedParamSheet(){
     setParamStatus('No se pudo leer la hoja de parámetros: '+(err.message||err));
   }
 }
+
+
+/* v2.3.1 — corrección real del control operativo y comparación de parámetros */
+
+function setPoStatus(txt, cls){
+  var el=document.getElementById('po-status');
+  if(!el) return;
+  el.className='param-status '+(cls||'');
+  el.textContent=txt;
+}
+function isGtfsLoaded(){
+  return DATA && Object.keys(DATA.routes||{}).length>0 && Object.keys(DATA.trips||{}).length>0;
+}
+function ensureControlPanelVisible(){
+  var panel=document.getElementById('po-panel');
+  if(panel) panel.style.display='block';
+}
+function gtfsPrimaryRouteKey(route){
+  return normalizeRouteCode((route && (route.route_short_name || route.route_id)) || '');
+}
+function addRouteAlias(map, key, route){
+  key=normalizeRouteCode(key);
+  if(key && route && !map[key]) map[key]=route;
+}
+/* Mayor precisión: une GTFS con DECO por código usuario, MTT y servicio DECO. */
+function routeByKeyFromGTFS(){
+  var out={};
+  Object.values(DATA.routes||{}).forEach(function(r){
+    addRouteAlias(out, r.route_short_name, r);
+    addRouteAlias(out, r.route_id, r);
+    [r.route_short_name, r.route_id].forEach(function(k){
+      var rows=(DATA.decoByRoute && DATA.decoByRoute[normalizeOpKey(k)]) || [];
+      rows.forEach(function(d){
+        addRouteAlias(out, d.CODIGO_USUARIO, r);
+        addRouteAlias(out, d.CODIGO_MTT, r);
+        addRouteAlias(out, d.SERVICIO_DECO, r);
+        addRouteAlias(out, d.CODIGO_RUTA, r);
+      });
+    });
+  });
+  return out;
+}
+function gtfsUnitForRoute(route){
+  var op=routeOperator(route);
+  var unit=normalizeUnit(op);
+  return unit || 'Sin DECO';
+}
+function gtfsRouteOperatorLabel(route){
+  var op=routeOperator(route);
+  return op && op!=='Sin DECO' ? op : gtfsUnitForRoute(route);
+}
+function servicesForPoDay(route, day, dir){
+  var trips=(DATA.tripsByRoute[String(route.route_id)]||[]).filter(function(t){return String(tripDir(t))===String(dir);});
+  var services=unique(trips.map(function(t){return String(t.service_id);}));
+  if(services.indexOf(String(day))!==-1) return [String(day)];
+  if(day==='L'){
+    var weekday=['LJ','V'].filter(function(s){return services.indexOf(s)!==-1;});
+    if(weekday.length) return weekday;
+  }
+  return [String(day)];
+}
+function countGtfsDeparturesForServices(route, serviceList, dir, startSec, endSec){
+  var trips=(DATA.tripsByRoute[String(route.route_id)]||[]).filter(function(t){
+    return serviceList.indexOf(String(t.service_id))!==-1 && String(tripDir(t))===String(dir);
+  });
+  if(!trips.length) return null;
+  var tripIds={}; trips.forEach(function(t){tripIds[t.trip_id]=true;});
+  var byService={};
+  serviceList.forEach(function(s){byService[s]=0;});
+  var usedFreqByService={};
+  (DATA.frequencies||[]).forEach(function(f){
+    if(!tripIds[f.trip_id] || !f.headway_secs) return;
+    var trip=DATA.trips[f.trip_id]; if(!trip) return;
+    var svc=String(trip.service_id);
+    var fs=timeToSecs(f.start_time), fe=timeToSecs(f.end_time);
+    var a=Math.max(fs,startSec), b=Math.min(fe,endSec);
+    if(b<=a) return;
+    usedFreqByService[svc]=true;
+    var t=fs;
+    if(t<a) t=fs + Math.ceil((a-fs)/f.headway_secs)*f.headway_secs;
+    while(t<b){ byService[svc]=(byService[svc]||0)+1; t+=f.headway_secs; }
+  });
+  trips.forEach(function(t){
+    var svc=String(t.service_id);
+    if(usedFreqByService[svc]) return;
+    var st=DATA.stopTimes[t.trip_id]||[];
+    if(!st.length) return;
+    var sec=timeToSecs(st[0].departure_time||st[0].arrival_time||'0:00:00');
+    if(sec>=startSec && sec<endSec) byService[svc]=(byService[svc]||0)+1;
+  });
+  var counts=Object.keys(byService).map(function(k){return byService[k]||0;});
+  return counts.length ? Math.max.apply(null, counts) : null;
+}
+/* Mayor precisión: si PO dice Laboral y GTFS viene separado en LJ/V, se compara contra el mayor valor LJ/V, no contra cero. */
+function gtfsDeparturesInWindow(route, day, dir, startSec, endSec){
+  if(!route || startSec===null || startSec===undefined || isNaN(startSec)) return null;
+  if(endSec===null || endSec===undefined || isNaN(endSec) || endSec<=startSec) endSec=startSec+1800;
+  var services=servicesForPoDay(route, day, dir);
+  return countGtfsDeparturesForServices(route, services, dir, startSec, endSec);
+}
+function getGtfsPrimaryRoutes(){
+  var seen={}, out=[];
+  Object.values(DATA.routes||{}).forEach(function(r){
+    var k=gtfsPrimaryRouteKey(r);
+    if(!k || seen[String(r.route_id)]) return;
+    seen[String(r.route_id)]=true;
+    out.push(r);
+  });
+  return out.sort(function(a,b){return String(a.route_short_name||a.route_id).localeCompare(String(b.route_short_name||b.route_id),undefined,{numeric:true});});
+}
+function controlFilterValuesFromData(){
+  var units={};
+  Object.keys(PO.units||{}).forEach(function(u){ if(u) units[u]=true; });
+  getGtfsPrimaryRoutes().forEach(function(r){ units[gtfsUnitForRoute(r)]=true; });
+  return Object.keys(units).filter(Boolean).sort(function(a,b){return a.localeCompare(b,undefined,{numeric:true});});
+}
+function fillPoFilters(){
+  fillParamSelect('po-company-filter', controlFilterValuesFromData(), 'Todas');
+  var dayVals=unique([].concat((PO.params||[]).map(function(p){return p.day;}), DATA.serviceIds||[])).sort(sortServices);
+  fillParamSelect('po-day-filter', dayVals, 'Todos');
+  var dirs=unique([].concat((PO.params||[]).map(function(p){return p.dir;}), ['0','1'])).sort();
+  fillParamSelect('po-dir-filter', dirs, 'Todos');
+}
+function poFilterPass(item){
+  var company=document.getElementById('po-company-filter') ? document.getElementById('po-company-filter').value : '__all';
+  var day=document.getElementById('po-day-filter') ? document.getElementById('po-day-filter').value : '__all';
+  var dir=document.getElementById('po-dir-filter') ? document.getElementById('po-dir-filter').value : '__all';
+  var q=normalizeRouteCode(document.getElementById('po-route-search') ? document.getElementById('po-route-search').value : '');
+  var unit=item.unit || item.poUnit || item.gtfsUnit || '';
+  if(company!=='__all' && unit!==company) return false;
+  if(day!=='__all' && item.day && item.day!==day) return false;
+  if(dir!=='__all' && item.dir && item.dir!==dir) return false;
+  if(q && normalizeRouteCode(item.routeCode || item.key || '').indexOf(q)===-1 && normalizeRouteCode(item.codigoTs||'').indexOf(q)===-1) return false;
+  return true;
+}
+function buildRouteComparisonItems(){
+  var gtfsByKey=routeByKeyFromGTFS();
+  var matchedRouteIds={};
+  var items=[];
+  Object.keys(PO.routesByCode||{}).sort(function(a,b){return a.localeCompare(b,undefined,{numeric:true});}).forEach(function(k){
+    var po=PO.routesByCode[k];
+    var gtfs=gtfsByKey[k] || gtfsByKey[normalizeRouteCode(po.codigoTs)];
+    if(gtfs) matchedRouteIds[String(gtfs.route_id)]=true;
+    var poUnit=po ? po.unit : '';
+    var gtfsUnit=gtfs ? gtfsUnitForRoute(gtfs) : '';
+    var item={
+      key:k,
+      routeCode:po ? po.routeCode : (gtfs?(gtfs.route_short_name||gtfs.route_id):k),
+      codigoTs:po ? po.codigoTs : '',
+      unit:poUnit||gtfsUnit,
+      poUnit:poUnit,
+      gtfsUnit:gtfsUnit,
+      poOperator:po ? (po.operator||poUnit) : '',
+      gtfsOperator:gtfs ? gtfsRouteOperatorLabel(gtfs) : '',
+      po:!!po,
+      gtfs:!!gtfs,
+      poParams:po?po.params:0,
+      poHours:po?po.hours:0,
+      poStopDirs:po?po.stopDirs:0,
+      gtfsTrips:gtfs?(DATA.tripsByRoute[String(gtfs.route_id)]||[]).length:0,
+      status:''
+    };
+    if(item.po && item.gtfs && (!poUnit || !gtfsUnit || poUnit===gtfsUnit)) item.status='OK';
+    else if(item.po && item.gtfs) item.status='Empresa distinta';
+    else if(item.po && !item.gtfs) item.status='Falta en GTFS';
+    else if(!item.po && item.gtfs) item.status='Sólo GTFS';
+    if(poFilterPass(item)) items.push(item);
+  });
+  getGtfsPrimaryRoutes().forEach(function(gtfs){
+    if(matchedRouteIds[String(gtfs.route_id)]) return;
+    var item={
+      key:gtfsPrimaryRouteKey(gtfs),
+      routeCode:gtfs.route_short_name||gtfs.route_id,
+      codigoTs:'',
+      unit:gtfsUnitForRoute(gtfs),
+      poUnit:'',
+      gtfsUnit:gtfsUnitForRoute(gtfs),
+      poOperator:'',
+      gtfsOperator:gtfsRouteOperatorLabel(gtfs),
+      po:false,
+      gtfs:true,
+      poParams:0,
+      poHours:0,
+      poStopDirs:0,
+      gtfsTrips:(DATA.tripsByRoute[String(gtfs.route_id)]||[]).length,
+      status: PO.loaded ? 'Sólo GTFS' : 'GTFS cargado'
+    };
+    if(poFilterPass(item)) items.push(item);
+  });
+  return items;
+}
+function buildCompanyComparison(routes){
+  var companies={};
+  routes.forEach(function(item){
+    var keyUnit=item.unit || item.poUnit || item.gtfsUnit || 'Sin unidad';
+    if(!companies[keyUnit]) companies[keyUnit]={unit:keyUnit,label:(item.poOperator||item.gtfsOperator||keyUnit),poRoutes:0,gtfsRoutes:0,matched:0,missingGtfs:0,onlyGtfs:0,companyMismatch:0,params:0};
+    if(item.po) companies[keyUnit].poRoutes++;
+    if(item.gtfs) companies[keyUnit].gtfsRoutes++;
+    if(item.po && item.gtfs) companies[keyUnit].matched++;
+    if(item.po && !item.gtfs) companies[keyUnit].missingGtfs++;
+    if(!item.po && item.gtfs) companies[keyUnit].onlyGtfs++;
+    if(item.status==='Empresa distinta') companies[keyUnit].companyMismatch++;
+    companies[keyUnit].params+=item.poParams||0;
+  });
+  return Object.values(companies);
+}
+function buildPoParamComparison(){
+  var gtfsByKey=routeByKeyFromGTFS();
+  var out=[];
+  (PO.params||[]).forEach(function(p){
+    if(!poFilterPass(p)) return;
+    if(p.start===null || p.start===undefined || isNaN(p.start)) return;
+    var route=gtfsByKey[p.routeKey] || gtfsByKey[normalizeRouteCode(p.codigoTs)];
+    var gtfs=route ? gtfsDeparturesInWindow(route,p.day,p.dir,p.start,p.start+1800) : null;
+    out.push({
+      routeKey:p.routeKey, routeCode:p.routeCode, codigoTs:p.codigoTs, unit:p.unit,
+      day:p.day, dir:p.dir, start:p.start, po:p.departures, gtfs:gtfs,
+      diff:gtfs===null?null:gtfs-p.departures
+    });
+  });
+  out.sort(function(a,b){
+    return String(a.unit).localeCompare(String(b.unit),undefined,{numeric:true}) ||
+      String(a.routeCode).localeCompare(String(b.routeCode),undefined,{numeric:true}) ||
+      String(a.day).localeCompare(String(b.day)) ||
+      String(a.dir).localeCompare(String(b.dir)) ||
+      (a.start-b.start);
+  });
+  return out;
+}
+function buildStopComparison(){
+  var gtfsByKey=routeByKeyFromGTFS();
+  var out=[];
+  Object.keys(PO.stopsByRouteDir||{}).forEach(function(k){
+    var parts=k.split('|'), routeKey=parts[0], dir=parts[1]||'0';
+    var sample=(PO.stopsByRouteDir[k]||[])[0]||{};
+    var item={routeKey:routeKey, routeCode:sample.routeCode||routeKey, codigoTs:sample.codigoTs||'', unit:sample.unit||'', dir:dir};
+    if(!poFilterPass(item)) return;
+    var route=gtfsByKey[routeKey] || gtfsByKey[normalizeRouteCode(sample.codigoTs)];
+    var poSeq=(PO.stopsByRouteDir[k]||[]).map(function(s){return cleanCode(s.stopId);});
+    var gtfsSeq=route ? gtfsRouteStopSeq(route, dir) : [];
+    var poSet={}, gtfsSet={};
+    poSeq.forEach(function(x){poSet[x]=true;});
+    gtfsSeq.forEach(function(x){gtfsSet[x]=true;});
+    var missing=poSeq.filter(function(x){return !gtfsSet[x];}).length;
+    var extra=gtfsSeq.filter(function(x){return !poSet[x];}).length;
+    out.push({
+      routeKey:routeKey, routeCode:item.routeCode, unit:item.unit, dir:dir, route:route,
+      poCount:poSeq.length, gtfsCount:gtfsSeq.length, missing:missing, extra:extra,
+      same:route && poSeq.length===gtfsSeq.length && missing===0 && extra===0
+    });
+  });
+  out.sort(function(a,b){return String(a.routeCode).localeCompare(String(b.routeCode),undefined,{numeric:true}) || String(a.dir).localeCompare(String(b.dir));});
+  return out;
+}
+function buildParamWorkbookComparison(){
+  var metric=normalizeTextLite(PARAMS.metric||PARAMS.activeSheet||'');
+  var metricIsDepartures=metric.indexOf('salida')!==-1 || metric.indexOf('exped')!==-1;
+  var gtfsByKey=routeByKeyFromGTFS();
+  var out=[];
+  if(!PARAMS || !PARAMS.rows || !PARAMS.rows.length || !PARAMS.intervals || !PARAMS.intervals.length) return {rows:[], metricIsDepartures:metricIsDepartures};
+  PARAMS.rows.forEach(function(r){
+    var routeKey=normalizeRouteCode(r.codigoUsuario || r.codigoTs);
+    var route=gtfsByKey[routeKey] || gtfsByKey[normalizeRouteCode(r.codigoTs)];
+    var unit=normalizeUnit(r.unidad);
+    var base={routeKey:routeKey, routeCode:r.codigoUsuario || r.codigoTs, codigoTs:r.codigoTs, unit:unit, dir:normalizePoDir(r.sentido), tipo:r.tipo};
+    if(!poFilterPass(base)) return;
+    PARAMS.intervals.forEach(function(it,idx){
+      var val=paramNumber(r.values[idx]);
+      if(val===null) return;
+      var day=normalizePoDay(it.day);
+      var start=excelTimeToSecs(it.start);
+      var end=excelTimeToSecs(it.end);
+      var gtfs=null, diff=null;
+      if(metricIsDepartures && route && day && base.dir && start!==null){
+        if(end===null || end<=start) end=start+1800;
+        gtfs=gtfsDeparturesInWindow(route,day,base.dir,start,end);
+        diff=gtfs===null?null:gtfs-val;
+      }
+      out.push({
+        routeCode:base.routeCode, codigoTs:base.codigoTs, unit:unit, day:day, dir:base.dir,
+        band:it.band||'', start:start, end:end, value:val, gtfs:gtfs, diff:diff,
+        metric:PARAMS.metric||PARAMS.activeSheet||''
+      });
+    });
+  });
+  out.sort(function(a,b){return String(a.unit).localeCompare(String(b.unit),undefined,{numeric:true}) || String(a.routeCode).localeCompare(String(b.routeCode),undefined,{numeric:true}) || (a.start||0)-(b.start||0);});
+  return {rows:out, metricIsDepartures:metricIsDepartures};
+}
+function buildPoComparison(){
+  var routes=buildRouteComparisonItems();
+  var companies=buildCompanyComparison(routes);
+  var params=PO.loaded ? buildPoParamComparison() : [];
+  var stops=PO.loaded ? buildStopComparison() : [];
+  var paramWorkbook=buildParamWorkbookComparison();
+  return {routes:routes, companies:companies, params:params, stops:stops, paramWorkbook:paramWorkbook};
+}
+function renderControlEmpty(message){
+  return '<div class="control-empty">'+esc(message)+'</div>';
+}
+function renderPoComparison(){
+  ensureControlPanelVisible();
+  if(!isGtfsLoaded()){
+    setPoStatus('Carga primero GTFS + DECO para habilitar el control operativo.', 'status-warn');
+    ['po-company-wrap','po-routes-wrap','po-params-wrap','po-stops-wrap','param-gtfs-wrap'].forEach(function(id){
+      var el=document.getElementById(id); if(el) el.innerHTML=renderControlEmpty('Esperando GTFS + DECO.');
+    });
+    var s=document.getElementById('po-summary'); if(s) s.innerHTML='';
+    return;
+  }
+  fillPoFilters();
+  var cmp=buildPoComparison();
+  PO.comparison=cmp;
+  var summary=document.getElementById('po-summary');
+  var matched=cmp.routes.filter(function(r){return r.po&&r.gtfs;}).length;
+  var missing=cmp.routes.filter(function(r){return r.po&&!r.gtfs;}).length;
+  var onlyGtfs=cmp.routes.filter(function(r){return !r.po&&r.gtfs;}).length;
+  var paramDiff=cmp.params.filter(function(p){return p.diff!==0 && p.diff!==null;}).length;
+  var paramWorkbookDiff=cmp.paramWorkbook.rows.filter(function(p){return p.diff!==0 && p.diff!==null;}).length;
+  if(summary){
+    summary.innerHTML=
+      '<div class="stat-card"><div class="lbl">Recorridos control</div><div class="val">'+cmp.routes.length+'</div></div>'+
+      '<div class="stat-card"><div class="lbl">Coinciden PO/GTFS</div><div class="val">'+matched+'</div></div>'+
+      '<div class="stat-card"><div class="lbl">Faltan en GTFS</div><div class="val">'+missing+'</div></div>'+
+      '<div class="stat-card"><div class="lbl">Sólo GTFS</div><div class="val">'+onlyGtfs+'</div></div>'+
+      '<div class="stat-card"><div class="lbl">Diferencias PO</div><div class="val">'+paramDiff+'</div></div>'+
+      '<div class="stat-card"><div class="lbl">Diferencias XLSX</div><div class="val">'+paramWorkbookDiff+'</div></div>'+
+      '<div class="stat-card"><div class="lbl">Errores PO</div><div class="val">'+((PO.errors||[]).length)+'</div></div>';
+  }
+  renderPoCompanyTable(cmp.companies);
+  renderPoRouteTable(cmp.routes);
+  renderPoParamsTable(cmp.params);
+  renderPoStopsTable(cmp.stops);
+  renderParamWorkbookComparison(cmp.paramWorkbook);
+  var status='Control actualizado.';
+  if(!PO.loaded) status+=' PO no cargado: se muestra sólo GTFS/DECO y parámetros XLSX si existen.';
+  else status+=' PO cargado: '+Object.keys(PO.routesByCode||{}).length+' recorridos, '+(PO.params||[]).length.toLocaleString()+' parámetros y '+(PO.stops||[]).length.toLocaleString()+' paradas.';
+  setPoStatus(status, PO.loaded?'status-ok':'status-warn');
+}
+function renderPoCompanyTable(companies){
+  var rows=companies.sort(function(a,b){return a.unit.localeCompare(b.unit,undefined,{numeric:true});}).map(function(c){
+    var status=c.missingGtfs||c.onlyGtfs||c.companyMismatch ? 'Revisar' : 'OK';
+    return '<tr><td><b>'+esc(c.label||c.unit)+'</b><br><small>'+esc(c.unit)+'</small></td><td>'+c.poRoutes+'</td><td>'+c.gtfsRoutes+'</td><td>'+c.matched+'</td><td>'+c.missingGtfs+'</td><td>'+c.onlyGtfs+'</td><td>'+c.companyMismatch+'</td><td class="'+statusClass(status)+'">'+status+'</td></tr>';
+  });
+  document.getElementById('po-company-wrap').innerHTML=tableFromRows(['Empresa','Rutas PO','Rutas GTFS','Coinciden','Faltan GTFS','Sólo GTFS','Empresa distinta','Estado'], rows);
+}
+function renderPoRouteTable(routes){
+  var rows=routes.slice(0,260).map(function(r){
+    var cls=statusClass(r.status);
+    return '<tr><td><b>'+esc(r.routeCode)+'</b><br><small>TS: '+esc(r.codigoTs||'—')+'</small></td><td>'+esc(r.poOperator||r.poUnit||'—')+'</td><td>'+esc(r.gtfsOperator||r.gtfsUnit||'—')+'</td><td>'+esc(r.po?'Sí':'No')+'</td><td>'+esc(r.gtfs?'Sí':'No')+'</td><td>'+r.poParams+'</td><td>'+r.poStopDirs+'</td><td>'+r.gtfsTrips+'</td><td class="'+cls+'">'+esc(r.status)+'</td></tr>';
+  });
+  var more=routes.length>260?'<div class="param-status">Hay '+(routes.length-260)+' recorridos adicionales no renderizados.</div>':'';
+  document.getElementById('po-routes-wrap').innerHTML=tableFromRows(['Ruta','Empresa PO','Empresa GTFS/DECO','En PO','En GTFS','Filas param.','Sentidos paradas','Viajes GTFS','Estado'], rows)+more;
+}
+function renderPoParamsTable(params){
+  if(!PO.loaded){
+    document.getElementById('po-params-wrap').innerHTML=renderControlEmpty('Carga el ZIP PO vigente para comparar Anexo 3 contra GTFS.');
+    return;
+  }
+  var shown=params.slice(0,260);
+  var rows=shown.map(function(p){
+    var status=p.gtfs===null?'Sin GTFS':(p.diff===0?'Coincide':(p.diff>0?'Exceso GTFS':'Déficit GTFS'));
+    var cls=status==='Coincide'?'status-ok':(status==='Sin GTFS'?'status-bad':'status-warn');
+    return '<tr><td><b>'+esc(p.routeCode)+'</b></td><td>'+esc((PO.routesByCode[p.routeKey]&&PO.routesByCode[p.routeKey].operator)||p.unit||'—')+'</td><td>'+esc(dayLabelShort(p.day))+'</td><td>'+esc(dirName(p.dir))+'</td><td>'+secsToClockFull(p.start)+'–'+secsToClockFull(p.start+1800)+'</td><td>'+p.po+'</td><td>'+(p.gtfs===null?'—':p.gtfs)+'</td><td>'+(p.diff===null?'—':(p.diff>0?'+':'')+p.diff)+'</td><td class="'+cls+'">'+status+'</td></tr>';
+  });
+  var more=params.length>260?'<div class="param-status">Hay '+(params.length-260)+' ventanas adicionales no renderizadas.</div>':'';
+  document.getElementById('po-params-wrap').innerHTML=tableFromRows(['Ruta','Empresa','Día','Sentido','Media hora','PO','GTFS','Dif.','Estado'], rows)+more;
+}
+function renderPoStopsTable(stops){
+  if(!PO.loaded){
+    document.getElementById('po-stops-wrap').innerHTML=renderControlEmpty('Carga el ZIP PO vigente para comparar Registro/Subregistro de paradas contra GTFS.');
+    return;
+  }
+  var rows=stops.slice(0,220).map(function(s){
+    var status=s.same?'Coincide':(s.route?'Diferente':'Sin GTFS');
+    var cls=s.same?'status-ok':(s.route?'status-warn':'status-bad');
+    return '<tr><td><b>'+esc(s.routeCode)+'</b></td><td>'+esc((PO.routesByCode[s.routeKey]&&PO.routesByCode[s.routeKey].operator)||s.unit||'—')+'</td><td>'+esc(dirName(s.dir))+'</td><td>'+s.poCount+'</td><td>'+(s.gtfsCount||'—')+'</td><td>'+s.missing+'</td><td>'+s.extra+'</td><td class="'+cls+'">'+status+'</td></tr>';
+  });
+  var more=stops.length>220?'<div class="param-status">Hay '+(stops.length-220)+' recorridos/sentidos adicionales no renderizados.</div>':'';
+  document.getElementById('po-stops-wrap').innerHTML=tableFromRows(['Ruta','Empresa','Sentido','Paradas PO','Paradas GTFS','Faltan','Sobrantes','Estado'], rows)+more;
+}
+function renderParamWorkbookComparison(result){
+  var note=document.getElementById('param-control-note');
+  var wrap=document.getElementById('param-gtfs-wrap');
+  if(!wrap) return;
+  if(!PARAMS || !PARAMS.rows || !PARAMS.rows.length){
+    if(note) note.textContent='No hay consolidado de parámetros cargado. Usa el botón “Cargar XLSX parámetros”.';
+    wrap.innerHTML=renderControlEmpty('Sin consolidado XLSX cargado.');
+    return;
+  }
+  if(note) note.textContent='Hoja activa: '+(PARAMS.activeSheet||'—')+' · métrica: '+(PARAMS.metric||'—')+'. '+(result.metricIsDepartures?'Se compara contra salidas GTFS.':'La métrica no parece ser “salidas”; se valida existencia de ruta y se muestra el valor.');
+  var rows=result.rows.slice(0,260).map(function(p){
+    var status=!p.gtfs && p.gtfs!==0 ? (result.metricIsDepartures?'Sin GTFS':'Informativo') : (p.diff===0?'Coincide':(p.diff>0?'Exceso GTFS':'Déficit GTFS'));
+    var cls=status==='Coincide'?'status-ok':(status==='Sin GTFS'?'status-bad':'status-warn');
+    return '<tr><td><b>'+esc(p.routeCode)+'</b></td><td>'+esc(p.unit||'—')+'</td><td>'+esc(dayLabelShort(p.day))+'</td><td>'+esc(dirName(p.dir))+'</td><td>'+secsToClockFull(p.start)+'–'+secsToClockFull(p.end)+'</td><td>'+esc(p.value)+'</td><td>'+(p.gtfs===null?'—':p.gtfs)+'</td><td>'+(p.diff===null?'—':(p.diff>0?'+':'')+p.diff)+'</td><td class="'+cls+'">'+status+'</td></tr>';
+  });
+  var more=result.rows.length>260?'<div class="param-status">Hay '+(result.rows.length-260)+' filas adicionales no renderizadas.</div>':'';
+  wrap.innerHTML=tableFromRows(['Ruta','Unidad','Día','Sentido','Intervalo','Parámetro','GTFS','Dif.','Estado'], rows)+more;
+}
+/* Carga manual de XLSX de parámetros corregida: ahora actualiza también el control operativo. */
+async function loadManualParamFile(file){
+  if(!file) return;
+  PARAMS.loading=true;
+  setParamStatus('Leyendo consolidado manual: '+(file.name||'archivo')+'...');
+  try{
+    await loadWorkbookMeta({name:file.name||'parametros.xlsx', file:file});
+    fillParamSheets();
+    await renderSelectedParamSheet();
+    setParamStatus('Consolidado manual cargado: '+(file.name||'archivo')+'.');
+    if(document.getElementById('tab-control') && document.getElementById('tab-control').style.display!=='none') renderPoComparison();
+  }catch(err){
+    console.error(err);
+    setParamStatus('No se pudo leer el XLSX manual: '+(err.message||err));
+  }finally{
+    PARAMS.loading=false;
+  }
+}
+/* Carga PO corregida: muestra panel, no falla si todavía no se cargó GTFS y recalcula al terminar. */
+async function loadPOZip(file){
+  if(!file) return;
+  PO={loaded:false,fileName:file.name||'PO.zip',units:{},routesByCode:{},params:[],hours:[],stopsByRouteDir:{},stops:[],errors:[],comparison:null};
+  ensureControlPanelVisible();
+  setPoStatus('Leyendo ZIP PO vigente...', '');
+  try{
+    var zip=await JSZip.loadAsync(file);
+    var names=Object.keys(zip.files).filter(function(n){
+      return /\.xlsx$/i.test(n) && !/(^|\/)~\$/.test(n) && /(Anexo 1|Anexo 3|Registro de paradas|Subregistro de paradas)/i.test(n);
+    }).sort(function(a,b){return a.localeCompare(b,undefined,{numeric:true});});
+    if(!names.length) throw new Error('El ZIP no contiene Anexo 1, Anexo 3 ni Registro de paradas en XLSX.');
+    for(var i=0;i<names.length;i++){
+      var name=names[i], meta=poMetaFromPath(name);
+      setPoStatus('Procesando PO '+(i+1)+'/'+names.length+': '+name.split('/').pop(), '');
+      try{
+        var buffer=await zip.file(name).async('arraybuffer');
+        var workbook=await xlsxOpenFromBuffer(buffer);
+        if(/Anexo 1/i.test(name)){
+          parsePoAnexo1(await xlsxReadSheetMatrix(workbook,'Horarios'), meta, name);
+        }else if(/Anexo 3/i.test(name)){
+          parsePoAnexo3(await xlsxReadSheetMatrix(workbook,'Parámetros'), meta, name);
+        }else if(/Registro de paradas|Subregistro de paradas/i.test(name)){
+          parsePoRegistroParadas(await xlsxReadSheetMatrix(workbook,'Paradas'), meta, name);
+        }
+      }catch(inner){
+        console.warn('No se pudo leer PO', name, inner);
+        PO.errors.push(name+': '+(inner.message||inner));
+      }
+      if(i%2===0) await new Promise(function(resolve){setTimeout(resolve,0);});
+    }
+    finalizePoStops();
+    PO.loaded=true;
+    fillPoFilters();
+    renderPoComparison();
+  }catch(err){
+    console.error(err);
+    setPoStatus('No se pudo cargar el PO: '+(err.message||err), 'status-bad');
+  }
+}
+function runPoComparison(){
+  if(!isGtfsLoaded()){
+    alert('Primero carga GTFS + DECO. Luego podrás comparar PO y parámetros.');
+    renderPoComparison();
+    return;
+  }
+  renderPoComparison();
+}
+function tableToCSV(table){
+  var rows=[];
+  Array.prototype.forEach.call(table.querySelectorAll('tr'),function(tr){
+    var cells=Array.prototype.map.call(tr.children,function(td){
+      var txt=(td.innerText||td.textContent||'').replace(/\s+/g,' ').trim();
+      return '"' + txt.replace(/"/g,'""') + '"';
+    });
+    rows.push(cells.join(';'));
+  });
+  return rows.join('\n');
+}
+function exportControlVisibleCSV(){
+  var root=document.getElementById('tab-control');
+  if(!root){ alert('No se encontró la pestaña de control.'); return; }
+  var tables=root.querySelectorAll('table');
+  if(!tables.length){ alert('No hay tablas de control para exportar.'); return; }
+  var blocks=[];
+  Array.prototype.forEach.call(tables,function(t,i){
+    var title=t.closest('.card') ? (t.closest('.card').querySelector('.card-title')||{}).textContent : ('Tabla '+(i+1));
+    blocks.push('"'+String(title||'Tabla').replace(/"/g,'""')+'"');
+    blocks.push(tableToCSV(t));
+    blocks.push('');
+  });
+  var blob=new Blob([blocks.join('\n')],{type:'text/csv;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;
+  a.download='control-operativo-v2.3.1.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);},1000);
+}
+function switchTab(tab){
+  var tabs=['ruta','paradero','parametros','control','comparar'];
+  document.querySelectorAll('.tab-btn').forEach(function(b,i){b.classList.toggle('active',tabs[i]===tab);});
+  document.getElementById('tab-ruta').style.display=tab==='ruta'?'block':'none';
+  document.getElementById('tab-paradero').style.display=tab==='paradero'?'block':'none';
+  document.getElementById('tab-parametros').style.display=tab==='parametros'?'block':'none';
+  var control=document.getElementById('tab-control');
+  if(control) control.style.display=tab==='control'?'block':'none';
+  document.getElementById('tab-comparar').style.display=tab==='comparar'?'block':'none';
+  if(tab==='ruta' && leafMap) setTimeout(function(){leafMap.invalidateSize();},50);
+  if(tab==='paradero' && stopLeafMap) setTimeout(function(){stopLeafMap.invalidateSize(); renderStopMap(activeStop);},70);
+  if(tab==='parametros') ensureParamsLoaded();
+  if(tab==='control') renderPoComparison();
+}
