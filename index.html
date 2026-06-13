@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Horarios RED — GTFS Viewer</title>
-<!-- v2.2.1 | index definitivo para estructura /assets y /data -->
+<!-- v2.3.0 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="assets/css/app.css?v=2.2.1">
+<link rel="stylesheet" href="assets/css/app.css?v=2.3.0">
 
 </head>
 <body>
@@ -66,6 +66,7 @@
     <button class="tab-btn active" onclick="switchTab('ruta')">Por Ruta</button>
     <button class="tab-btn" onclick="switchTab('paradero')">Por Paradero</button>
     <button class="tab-btn" onclick="switchTab('parametros')">Parámetros</button>
+    <button class="tab-btn" onclick="switchTab('control')">Control PO/GTFS</button>
     <button class="tab-btn" onclick="switchTab('comparar')">Comparar GTFS</button>
   </div>
   <div class="data-age" id="data-age"></div>
@@ -198,10 +199,12 @@
         </div>
         <div class="param-actions">
           <button class="btn-upload" type="button" onclick="loadSelectedParams()" style="margin-top:0">Cargar parámetros</button>
+          <input type="file" id="param-manual-input" accept=".xlsx" style="display:none">
+          <button class="btn-upload secondary-btn" type="button" onclick="document.getElementById('param-manual-input').click()" style="margin-top:0">XLSX manual</button>
           <button class="btn-upload secondary-btn" type="button" onclick="syncParamRouteFromGTFS()" style="margin-top:0">Usar ruta GTFS</button>
         </div>
       </div>
-      <div class="param-status" id="param-status">El consolidado se selecciona en la pantalla de inicio y se descarga solo al abrir esta sección o al presionar cargar.</div>
+      <div class="param-status" id="param-status">Puedes cargar el consolidado desde GitHub/data o ingresar un XLSX manual.</div>
     </div>
 
     <div id="param-panel" style="display:none">
@@ -231,6 +234,66 @@
       </div>
     </div>
   </div>
+
+
+  <!-- TAB CONTROL PO / GTFS -->
+  <div id="tab-control" style="display:none">
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">Control PO vigente vs GTFS / DECO</div>
+      <div class="compare-upload">
+        <input type="file" id="po-file-input" accept=".zip" style="display:none">
+        <button class="btn-upload" type="button" onclick="document.getElementById('po-file-input').click()" style="margin-top:0">Cargar PO vigente ZIP</button>
+        <button class="btn-upload secondary-btn" type="button" onclick="runPoComparison()" style="margin-top:0">Recalcular comparación</button>
+        <span id="po-status" style="color:var(--muted);font-size:13px">Carga manual del ZIP PO vigente. Se leen Anexo 1, Anexo 3 y Registro de paradas.</span>
+      </div>
+    </div>
+
+    <div id="po-panel" style="display:none">
+      <div class="filters">
+        <div class="fg" style="min-width:200px">
+          <label>Empresa / Unidad</label>
+          <select id="po-company-filter"></select>
+        </div>
+        <div class="fg" style="min-width:160px">
+          <label>Tipo de día</label>
+          <select id="po-day-filter"></select>
+        </div>
+        <div class="fg" style="min-width:150px">
+          <label>Sentido</label>
+          <select id="po-dir-filter"></select>
+        </div>
+        <div class="fg" style="flex:1;min-width:220px">
+          <label>Buscar recorrido</label>
+          <input type="text" id="po-route-search" placeholder="Ej: 101, 104, B01, F10..." autocomplete="off">
+        </div>
+      </div>
+
+      <div class="param-summary" id="po-summary"></div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="card-title">Comparación por empresa</div>
+          <div id="po-company-wrap" class="compare-list"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Recorridos PO vs GTFS / DECO</div>
+          <div id="po-routes-wrap" class="compare-list"></div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="card-title">Parámetros operacionales: salidas PO vs GTFS</div>
+          <div id="po-params-wrap" class="compare-list"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Registro de paradas PO vs GTFS</div>
+          <div id="po-stops-wrap" class="compare-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 
   <!-- TAB COMPARAR -->
   <div id="tab-comparar" style="display:none">
@@ -272,6 +335,6 @@
   </div>
 </div>
 
-<script src="assets/js/app.js?v=2.2.1"></script>
+<script src="assets/js/app.js?v=2.3.0"></script>
 </body>
 </html>
