@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Horarios RED — GTFS Viewer</title>
-<!-- v2.3.1 -->
+<!-- v2.4.0 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="assets/css/app.css?v=2.3.1">
+<link rel="stylesheet" href="assets/css/app.css?v=2.4.0">
 
 </head>
 <body>
@@ -28,8 +28,8 @@
 <div id="upload-section">
   <div class="upload-zone" id="dropzone">
     <div class="upload-icon">&#128230;</div>
-    <h2>Carga tu archivo GTFS</h2>
-    <p>GTFS + DECO.</p>
+    <h2>Carga datos GTFS</h2>
+    <p>Selecciona GTFS + DECO desde GitHub/data.</p>
 
     <div class="github-loader">
       <div class="fg" style="text-align:left;flex:1;min-width:190px">
@@ -46,16 +46,7 @@
       </div>
       <button class="btn-upload" type="button" onclick="loadSelectedMainGTFS()">Cargar</button>
     </div>
-
-    <div class="upload-separator">o</div>
-    <input type="file" id="file-input" accept=".zip">
-    <input type="file" id="deco-file-input" accept=".zip,.csv" style="display:none">
-    <div class="manual-loader">
-      <label for="file-input" class="btn-upload secondary-btn">GTFS manual</label>
-      <label for="deco-file-input" class="btn-upload secondary-btn">DECO manual</label>
-      <button class="btn-upload" type="button" onclick="loadManualPair()">Cargar manuales</button>
-    </div>
-    <div class="operator-note" id="manual-files-label">Selecciona GTFS y DECO.</div>
+    <div class="operator-note">Los archivos se cargan exclusivamente desde GitHub/data.</div>
     <div class="progress-bar" id="prog-bar" style="display:none"><div class="progress-fill" id="prog-fill"></div></div>
     <div class="progress-label" id="prog-label"></div>
   </div>
@@ -67,6 +58,7 @@
     <button class="tab-btn" onclick="switchTab('paradero')">Por Paradero</button>
     <button class="tab-btn" onclick="switchTab('parametros')">Parámetros</button>
     <button class="tab-btn" onclick="switchTab('control')">Control PO/GTFS</button>
+    <button class="tab-btn" onclick="switchTab('simulacion')">Ver Simulación GTFS</button>
     <button class="tab-btn" onclick="switchTab('comparar')">Comparar GTFS</button>
   </div>
   <div class="data-age" id="data-age"></div>
@@ -123,10 +115,13 @@
     </div>
 
     <div class="card">
-      <div class="card-title">Paradas del recorrido</div>
-      <div style="display:flex;gap:8px;margin-bottom:12px">
-        <button class="map-dir-btn active" id="stops-btn-0" onclick="setStopsDir(0)">Ida</button>
-        <button class="map-dir-btn" id="stops-btn-1" onclick="setStopsDir(1)">Regreso</button>
+      <div class="card-title">Todas las salidas</div>
+      <div class="route-table-toolbar">
+        <div class="map-dir-tabs">
+          <button class="map-dir-btn active" id="stops-btn-0" onclick="setStopsDir(0)">Ida</button>
+          <button class="map-dir-btn" id="stops-btn-1" onclick="setStopsDir(1)">Regreso</button>
+        </div>
+        <div class="operator-note" id="departures-summary">Salidas del sentido seleccionado.</div>
       </div>
       <div id="stops-table-wrap"></div>
     </div>
@@ -199,12 +194,10 @@
         </div>
         <div class="param-actions">
           <button class="btn-upload" type="button" onclick="loadSelectedParams()" style="margin-top:0">Cargar parámetros</button>
-          <input type="file" id="param-manual-input" accept=".xlsx" style="display:none">
-          <button class="btn-upload secondary-btn" type="button" onclick="document.getElementById('param-manual-input').click()" style="margin-top:0">XLSX manual</button>
           <button class="btn-upload secondary-btn" type="button" onclick="syncParamRouteFromGTFS()" style="margin-top:0">Usar ruta GTFS</button>
         </div>
       </div>
-      <div class="param-status" id="param-status">Puedes cargar el consolidado desde GitHub/data o ingresar un XLSX manual.</div>
+      <div class="param-status" id="param-status">Carga el consolidado desde GitHub/data.</div>
     </div>
 
     <div id="param-panel" style="display:none">
@@ -239,15 +232,12 @@
   <!-- TAB CONTROL PO / GTFS -->
   <div id="tab-control" style="display:none">
     <div class="card" style="margin-bottom:14px">
-      <div class="card-title">Control operativo: PO / Parámetros / GTFS / DECO</div>
+      <div class="card-title">Control operativo: Parámetros / GTFS / DECO</div>
       <div class="compare-upload">
-        <input type="file" id="po-file-input" accept=".zip" style="display:none">
-        <button class="btn-upload" type="button" onclick="document.getElementById('po-file-input').click()" style="margin-top:0">Cargar PO vigente ZIP</button>
-        <button class="btn-upload secondary-btn" type="button" onclick="document.getElementById('param-manual-input').click()" style="margin-top:0">Cargar XLSX parámetros</button>
         <button class="btn-upload secondary-btn" type="button" onclick="runPoComparison()" style="margin-top:0">Recalcular control</button>
         <button class="btn-upload secondary-btn" type="button" onclick="exportControlVisibleCSV()" style="margin-top:0">Exportar CSV</button>
       </div>
-      <div id="po-status" class="param-status">Primero carga GTFS + DECO. Luego puedes subir manualmente el ZIP PO vigente y/o el consolidado XLSX de parámetros.</div>
+      <div id="po-status" class="param-status">Primero carga GTFS + DECO. Luego puedes usar el consolidado cargado desde GitHub/data para el control disponible.</div>
       <div class="param-sheet-note">El control cruza empresas, recorridos, sentidos, salidas por media hora y secuencias de paradas. No agrega librerías nuevas.</div>
     </div>
 
@@ -304,6 +294,55 @@
   </div>
 
 
+  <!-- TAB SIMULACION GTFS -->
+  <div id="tab-simulacion" style="display:none">
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">Ver simulación GTFS</div>
+      <div class="filters" style="margin-bottom:12px">
+        <div class="fg" style="min-width:190px">
+          <label>Operador</label>
+          <select id="sim-operator"></select>
+        </div>
+        <div class="fg" style="min-width:250px;flex:1">
+          <label>Recorrido</label>
+          <select id="sim-route"></select>
+        </div>
+        <div class="fg">
+          <label>Tipo de día</label>
+          <select id="sim-service"></select>
+        </div>
+        <div class="fg">
+          <label>Sentido</label>
+          <select id="sim-dir">
+            <option value="-1">Ida y regreso</option>
+            <option value="0">Ida</option>
+            <option value="1">Regreso</option>
+          </select>
+        </div>
+      </div>
+      <div class="hour-filter">
+        <label>Hora de simulación:</label>
+        <input type="range" id="sim-time-slider" min="0" max="1439" value="480" step="1" oninput="onSimTimeSlide(this.value)">
+        <div class="hour-val" id="sim-time-label">08:00</div>
+        <button class="all-btn" type="button" onclick="stepSimTime(-10)">−10 min</button>
+        <button class="all-btn" type="button" onclick="stepSimTime(10)">+10 min</button>
+      </div>
+      <div class="map-legend">
+        <div class="legend-item"><div class="legend-line" style="background:#2563eb"></div><span>Ida</span></div>
+        <div class="legend-item"><div class="legend-line" style="background:#dc2626"></div><span>Regreso</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:#AF2B1E"></div><span>Bus activo</span></div>
+        <span id="sim-count" style="margin-left:auto;color:var(--muted);font-size:12px"></span>
+      </div>
+      <div id="sim-map"></div>
+      <div class="param-sheet-note">La posición se estima interpolando el trazado GTFS según hora de salida y llegada del viaje. Es una simulación operacional, no GPS en tiempo real.</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Salidas activas a la hora seleccionada</div>
+      <div id="sim-active-wrap"></div>
+    </div>
+  </div>
+
+
   <!-- TAB COMPARAR -->
   <div id="tab-comparar" style="display:none">
     <div class="card" style="margin-bottom:14px">
@@ -318,11 +357,6 @@
           <select id="compare-target-select"><option value="">Buscando archivos...</option></select>
         </div>
         <button class="btn-upload" type="button" onclick="compareSelectedGTFS()" style="margin-top:0">Comparar seleccionados</button>
-      </div>
-      <div class="compare-upload" style="border-top:1px solid var(--border);padding-top:12px">
-        <input type="file" id="old-gtfs-input" accept=".zip">
-        <button class="btn-upload secondary-btn" type="button" onclick="document.getElementById('old-gtfs-input').click()" style="margin-top:0">Comparar manual</button>
-        <span id="old-gtfs-label" style="color:var(--muted);font-size:13px">Opcional: .zip antiguo.</span>
       </div>
       <div id="compare-hint" class="hint" style="padding:16px;text-align:left">Selecciona dos GTFS para comparar cambios.</div>
     </div>
@@ -344,6 +378,6 @@
   </div>
 </div>
 
-<script src="assets/js/app.js?v=2.3.1"></script>
+<script src="assets/js/app.js?v=2.4.0"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-/* v2.3.0 — lógica principal del GTFS Viewer
+/* v2.4.0 — lógica principal del GTFS Viewer
    Separado desde el HTML para facilitar mantenimiento en GitHub Pages. */
 
 var SVC = {L:'Lunes a Viernes', S:'Sábado', D:'Domingo', F:'Festivo', LJ:'Lun a Jue', V:'Viernes'};
@@ -20,6 +20,8 @@ function freshData(){
 }
 var freqChart = null, stopChart = null;
 var leafMap = null, layerIda = null, layerReg = null, layerStops = null;
+var simMap = null, simShapeLayer = null, simVehicleLayer = null;
+var simSelectedMinute = 480;
 var stopLeafMap = null, stopMarker = null;
 var OLD_GTFS = null;
 var activeStop = null, selectedHour = 8;
@@ -32,12 +34,13 @@ var PARAMS = {
 
 var dropzone = document.getElementById('dropzone');
 var fileInput = document.getElementById('file-input');
-dropzone.addEventListener('dragover', function(e){ e.preventDefault(); dropzone.classList.add('drag'); });
-dropzone.addEventListener('dragleave', function(){ dropzone.classList.remove('drag'); });
-dropzone.addEventListener('drop', function(e){ e.preventDefault(); dropzone.classList.remove('drag'); var f=e.dataTransfer.files[0]; if(!f) return; if(/deco/i.test(f.name||'')) MANUAL_DECO_FILE=f; else MANUAL_GTFS_FILE=f; updateManualLabel(); });
-fileInput.addEventListener('change', function(e){ MANUAL_GTFS_FILE=e.target.files[0]||null; updateManualLabel(); });
+if(dropzone){
+  dropzone.addEventListener('dragover', function(e){ e.preventDefault(); dropzone.classList.add('drag'); });
+  dropzone.addEventListener('dragleave', function(){ dropzone.classList.remove('drag'); });
+}
+if(fileInput) fileInput.addEventListener('change', function(e){ MANUAL_GTFS_FILE=e.target.files[0]||null; updateManualLabel(); });
 var decoFileInput = document.getElementById('deco-file-input');
-decoFileInput.addEventListener('change', function(e){ MANUAL_DECO_FILE=e.target.files[0]||null; updateManualLabel(); });
+if(decoFileInput) decoFileInput.addEventListener('change', function(e){ MANUAL_DECO_FILE=e.target.files[0]||null; updateManualLabel(); });
 document.addEventListener('change', function(e){ if(e.target && e.target.id==='old-gtfs-input') handleOldGTFS(e.target.files[0]); });
 
 async function initGitHubGTFSList(){
@@ -119,7 +122,7 @@ async function loadSelectedMainGTFS(){
     var decoFile=await fetchGTFSFileFromURL(decoSel.value,decoName);
     await handleFile(file, decoFile);
   }
-  catch(err){ console.error(err); prog(0,'No se pudo descargar el GTFS o DECO desde GitHub. Usa carga manual o revisa el repositorio.'); }
+  catch(err){ console.error(err); prog(0,'No se pudo descargar el GTFS o DECO desde GitHub. Revisa el repositorio data.'); }
 }
 function updateManualLabel(){
   var el=document.getElementById('manual-files-label'); if(!el) return;
@@ -337,6 +340,7 @@ function buildUI(){
 
   fillOperatorSelect('sel-operator');
   fillOperatorSelect('sel-operator-stop');
+  setupSimulationSelectors();
   refreshDataAge();
   updateStopGlobalServices();
   selR.addEventListener('change', function(){ updateRouteServiceOptions(); renderAll(); });
@@ -344,6 +348,7 @@ function buildUI(){
   document.getElementById('sel-operator-stop').addEventListener('change', function(){ if(activeStop) renderStop(activeStop); });
   document.getElementById('sel-service').addEventListener('change', renderAll);
   document.getElementById('sel-service-stop').addEventListener('change', function(){ if(activeStop) renderStop(activeStop); });
+  bindSimulationEvents();
   setupStopSearch();
   updateRouteServiceOptions();
   renderAll();
@@ -722,7 +727,7 @@ function renderMap(){
   if(bounds.length) leafMap.fitBounds(bounds,{padding:[20,20]});
 }
 
-function renderAll(){ syncDirectionControls(); renderFreqs(); renderMap(); renderStopsTable(); }
+function renderAll(){ syncDirectionControls(); renderFreqs(); renderMap(); renderDeparturesTable(); syncSimulationFromRoute(); renderSimulation(); }
 function getTrips(dir){
   var routeId=document.getElementById('sel-route').value, svcId=document.getElementById('sel-service').value;
   return (DATA.tripsByRoute[String(routeId)]||[]).filter(function(t){return String(t.service_id)===String(svcId) && (dir===-1||tripDir(t)===String(dir));});
@@ -800,23 +805,65 @@ function setStopsDir(dir, skipRender){
   if(b0) b0.classList.toggle('active',curStopsDir===0); if(b1) b1.classList.toggle('active',curStopsDir===1);
   if(!skipRender) renderStopsTable();
 }
-function renderStopsTable(){
-  var w=document.getElementById('stops-table-wrap'), trips=getTrips(curStopsDir);
-  if(!trips.length){w.innerHTML='<div class="no-data">Sin viajes para este filtro</div>';return;}
-  var refTrip=trips.find(function(t){return DATA.stopTimes[t.trip_id]&&DATA.stopTimes[t.trip_id].length;});
-  var stopSeq=refTrip?DATA.stopTimes[refTrip.trip_id]:[]; if(!stopSeq.length){w.innerHTML='<div class="no-data">Sin datos de paradas</div>';return;}
-  var freqs=getFreqsForTrips([refTrip]);
-  var startSec=freqs.length?timeToSecs(freqs[0].start_time):getTripStartOffset(refTrip.trip_id);
-  var lastFreq=freqs[freqs.length-1]; var endSec=lastFreq?timeToSecs(lastFreq.end_time):startSec;
-  var baseStart=getTripStartOffset(refTrip.trip_id);
-  var rows=stopSeq.slice(0,60).map(function(st){
-    var stop=DATA.stops[st.stop_id]||{}, name=cleanName(stop.stop_name||st.stop_id);
-    var offset=timeToSecs(st.departure_time||st.arrival_time||'0:00:00')-baseStart;
-    return '<tr><td style="color:#999;font-size:12px">'+st.stop_sequence+'</td><td>'+esc(name)+'</td><td style="font-weight:500">'+secsToTime(startSec+offset)+'</td><td style="font-weight:500">'+secsToTime(endSec+offset)+'</td></tr>';
-  }).join('');
-  var more=stopSeq.length>60?'<tr><td colspan="4" style="text-align:center;color:#999;font-size:13px;padding:10px">... y '+(stopSeq.length-60)+' paradas más</td></tr>':'';
-  w.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Parada</th><th>Primera salida</th><th>Última salida</th></tr></thead><tbody>'+rows+more+'</tbody></table></div>';
+function tripDurationSecs(tripId){
+  var st=DATA.stopTimes[tripId]||[];
+  if(st.length<2) return 0;
+  var first=timeToSecs(st[0].departure_time||st[0].arrival_time||'0:00:00');
+  var last=timeToSecs(st[st.length-1].arrival_time||st[st.length-1].departure_time||'0:00:00');
+  return Math.max(0,last-first);
 }
+function tripStartEnd(tripId){
+  var st=DATA.stopTimes[tripId]||[];
+  if(!st.length) return null;
+  var dep=timeToSecs(st[0].departure_time||st[0].arrival_time||'0:00:00');
+  var arr=timeToSecs(st[st.length-1].arrival_time||st[st.length-1].departure_time||'0:00:00');
+  return {departure:dep, arrival:arr};
+}
+function routeDepartures(routeId, serviceId, dir){
+  var trips=(DATA.tripsByRoute[String(routeId)]||[]).filter(function(t){
+    return String(t.service_id)===String(serviceId) && (dir===-1 || tripDir(t)===String(dir));
+  });
+  var out=[], seen={};
+  trips.forEach(function(t){
+    var se=tripStartEnd(t.trip_id);
+    if(!se) return;
+    var duration=Math.max(0,se.arrival-se.departure);
+    var freqs=getFreqsForTrips([t]);
+    if(freqs.length){
+      freqs.forEach(function(f){
+        var start=timeToSecs(f.start_time), end=timeToSecs(f.end_time), step=Math.max(1,csvNum(f.headway_secs,0));
+        for(var s=start; s<end; s+=step){
+          var key=t.trip_id+'|'+s+'|'+tripDir(t);
+          if(seen[key]) continue; seen[key]=true;
+          out.push({trip:t, dir:tripDir(t), departure:s, arrival:s+duration, headsign:t.trip_headsign||'', source:'frecuencia'});
+        }
+      });
+    }else{
+      var key=t.trip_id+'|'+se.departure+'|'+tripDir(t);
+      if(!seen[key]){
+        seen[key]=true;
+        out.push({trip:t, dir:tripDir(t), departure:se.departure, arrival:se.arrival, headsign:t.trip_headsign||'', source:'programada'});
+      }
+    }
+  });
+  return out.sort(function(a,b){return a.departure-b.departure || a.arrival-b.arrival || String(a.trip.trip_id).localeCompare(String(b.trip.trip_id));});
+}
+function renderDeparturesTable(){
+  var w=document.getElementById('stops-table-wrap');
+  if(!w) return;
+  var routeId=document.getElementById('sel-route').value, svcId=document.getElementById('sel-service').value;
+  var departures=routeDepartures(routeId, svcId, curStopsDir);
+  var summary=document.getElementById('departures-summary');
+  if(summary) summary.textContent=departures.length+' salidas · '+dirName(curStopsDir)+' · '+serviceLabel(svcId);
+  if(!departures.length){w.innerHTML='<div class="no-data">Sin salidas para este recorrido, sentido y tipo de día.</div>';return;}
+  var route=DATA.routes[routeId]||{}, routeShort=route.route_short_name||route.route_id||'';
+  var rows=departures.map(function(d,i){
+    var duration=Math.max(0,d.arrival-d.departure), mins=Math.round(duration/60);
+    return '<tr><td style="color:#999;font-size:12px">'+(i+1)+'</td><td><span class="route-badge" style="background:'+rColor(route)+';color:'+rText(route)+'">'+esc(routeShort)+'</span></td><td>'+esc(dirName(d.dir))+'</td><td style="font-weight:600">'+secsToTime(d.departure)+'</td><td style="font-weight:600">'+secsToTime(d.arrival)+'</td><td>'+mins+' min</td><td>'+esc(d.headsign||'—')+'</td></tr>';
+  }).join('');
+  w.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Recorrido</th><th>Sentido</th><th>Sale</th><th>Llega</th><th>Duración</th><th>Destino</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+function renderStopsTable(){ renderDeparturesTable(); }
 
 
 function initStopMap(){
@@ -1721,7 +1768,7 @@ async function loadSelectedMainGTFS(){
     var decoFile=await fetchGTFSFileFromURL(decoSel.value,decoName);
     await handleFile(file, decoFile);
   }
-  catch(err){ console.error(err); prog(0,'No se pudo descargar el GTFS o DECO desde GitHub. Usa carga manual o revisa el repositorio.'); }
+  catch(err){ console.error(err); prog(0,'No se pudo descargar el GTFS o DECO desde GitHub. Revisa el repositorio data.'); }
 }
 
 /* v2.3.0 — lectura de parámetros con manejo de errores */
@@ -2253,3 +2300,188 @@ function switchTab(tab){
   if(tab==='parametros') ensureParamsLoaded();
   if(tab==='control') renderPoComparison();
 }
+
+
+/* v2.4.0 — simulación GTFS y salidas por recorrido */
+function setupSimulationSelectors(){
+  fillOperatorSelect('sim-operator');
+  var simR=document.getElementById('sim-route');
+  if(!simR) return;
+  simR.innerHTML='';
+  Object.values(DATA.routes)
+    .filter(function(r){return (DATA.tripsByRoute[String(r.route_id)]||[]).length>0;})
+    .sort(function(a,b){return String(a.route_short_name).localeCompare(String(b.route_short_name),undefined,{numeric:true});})
+    .forEach(function(r){
+      var o=document.createElement('option');
+      o.value=r.route_id;
+      o.textContent=(r.route_short_name||r.route_id)+' — '+(r.route_long_name||'');
+      simR.appendChild(o);
+    });
+  syncSimulationFromRoute(true);
+}
+function bindSimulationEvents(){
+  ['sim-operator','sim-route','sim-service','sim-dir'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(!el || el.dataset.boundSim) return;
+    el.dataset.boundSim='1';
+    el.addEventListener('change', function(){
+      if(id==='sim-operator') updateSimulationRoutesByOperator();
+      else if(id==='sim-route') updateSimulationServiceOptions();
+      renderSimulation();
+    });
+  });
+}
+function updateSimulationRoutesByOperator(){
+  var op=document.getElementById('sim-operator').value;
+  var sel=document.getElementById('sim-route'), old=sel.value;
+  sel.innerHTML='';
+  var routes=Object.values(DATA.routes)
+    .filter(function(r){return (DATA.tripsByRoute[String(r.route_id)]||[]).length>0 && routeMatchesOperator(r,op);})
+    .sort(function(a,b){return String(a.route_short_name).localeCompare(String(b.route_short_name),undefined,{numeric:true});});
+  routes.forEach(function(r){
+    var o=document.createElement('option'); o.value=r.route_id; o.textContent=(r.route_short_name||r.route_id)+' — '+(r.route_long_name||''); sel.appendChild(o);
+  });
+  if(routes.some(function(r){return String(r.route_id)===String(old);})) sel.value=old;
+  updateSimulationServiceOptions();
+}
+function updateSimulationServiceOptions(){
+  var routeId=(document.getElementById('sim-route')||{}).value;
+  var sel=document.getElementById('sim-service');
+  if(sel) fillServiceSelect(sel, routeServices(routeId));
+  var dirSel=document.getElementById('sim-dir'), dirs=routeDirs(routeId, sel?sel.value:'');
+  if(dirSel){
+    Array.prototype.forEach.call(dirSel.options,function(o){
+      o.disabled=(o.value!=='-1' && dirs.indexOf(o.value)===-1);
+    });
+    if(dirSel.value!=='-1' && dirs.indexOf(dirSel.value)===-1) dirSel.value='-1';
+  }
+}
+function syncSimulationFromRoute(initialOnly){
+  var simR=document.getElementById('sim-route'), routeSel=document.getElementById('sel-route');
+  if(!simR || !routeSel) return;
+  if(!initialOnly || !simR.value) simR.value=routeSel.value;
+  updateSimulationServiceOptions();
+  var simSvc=document.getElementById('sim-service'), svc=document.getElementById('sel-service');
+  if(simSvc && svc && routeServices(simR.value).indexOf(svc.value)!==-1) simSvc.value=svc.value;
+}
+function initSimulationMap(){
+  if(simMap) return;
+  simMap=L.map('sim-map').setView([-33.45,-70.65],11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'&copy; OpenStreetMap contributors', maxZoom:18 }).addTo(simMap);
+}
+function routeLatLngAt(shapePts, progress){
+  if(!shapePts || !shapePts.length) return null;
+  if(shapePts.length===1) return [shapePts[0].lat, shapePts[0].lng];
+  progress=Math.max(0,Math.min(1,progress));
+  var total=0, segs=[];
+  for(var i=1;i<shapePts.length;i++){
+    var a=shapePts[i-1], b=shapePts[i];
+    var d=Math.sqrt(Math.pow(a.lat-b.lat,2)+Math.pow(a.lng-b.lng,2));
+    segs.push(d); total+=d;
+  }
+  if(total<=0){ var p0=shapePts[0]; return [p0.lat,p0.lng]; }
+  var target=total*progress, acc=0;
+  for(var j=1;j<shapePts.length;j++){
+    var sd=segs[j-1];
+    if(acc+sd>=target){
+      var prev=shapePts[j-1], next=shapePts[j], local=sd?((target-acc)/sd):0;
+      return [prev.lat+(next.lat-prev.lat)*local, prev.lng+(next.lng-prev.lng)*local];
+    }
+    acc+=sd;
+  }
+  var last=shapePts[shapePts.length-1]; return [last.lat,last.lng];
+}
+function activeSimDepartures(routeId, serviceId, dir, minute){
+  var t=minute*60;
+  return routeDepartures(routeId, serviceId, dir).filter(function(d){ return d.departure<=t && d.arrival>=t && d.arrival>d.departure; });
+}
+function vehicleIcon(label, dir){
+  var cls=String(dir)==='1'?'sim-bus sim-bus-reg':'sim-bus sim-bus-ida';
+  return L.divIcon({className:'', html:'<div class="'+cls+'">'+esc(label)+'</div>', iconSize:[34,34], iconAnchor:[17,17]});
+}
+function renderSimulation(){
+  if(!document.getElementById('tab-simulacion')) return;
+  if(!simMap && document.getElementById('tab-simulacion').style.display==='none') return;
+  initSimulationMap();
+  if(simShapeLayer){ simMap.removeLayer(simShapeLayer); simShapeLayer=null; }
+  if(simVehicleLayer){ simMap.removeLayer(simVehicleLayer); simVehicleLayer=null; }
+  var routeId=(document.getElementById('sim-route')||{}).value, svcId=(document.getElementById('sim-service')||{}).value;
+  if(!routeId || !svcId) return;
+  var dir=Number((document.getElementById('sim-dir')||{}).value || -1);
+  var route=DATA.routes[routeId]||{}, routeShort=route.route_short_name||route.route_id||'';
+  var bounds=[], shapes=L.layerGroup(), vehicles=L.layerGroup();
+  function drawShape(d, color){
+    var trips=(DATA.tripsByRoute[String(routeId)]||[]).filter(function(t){return String(t.service_id)===String(svcId) && tripDir(t)===String(d);});
+    var shapeTrip=trips.find(function(t){return t.shape_id && DATA.shapes[t.shape_id] && DATA.shapes[t.shape_id].length;});
+    if(!shapeTrip) return;
+    var pts=DATA.shapes[shapeTrip.shape_id], latlngs=pts.map(function(p){return [p.lat,p.lng];});
+    if(latlngs.length){ L.polyline(latlngs,{color:color,weight:4,opacity:.8}).addTo(shapes); bounds=bounds.concat(latlngs); }
+  }
+  if(dir===-1 || dir===0) drawShape(0,'#2563eb');
+  if(dir===-1 || dir===1) drawShape(1,'#dc2626');
+  var active=activeSimDepartures(routeId, svcId, dir, simSelectedMinute);
+  active.forEach(function(d){
+    var shapePts=(d.trip.shape_id && DATA.shapes[d.trip.shape_id]) ? DATA.shapes[d.trip.shape_id] : null;
+    var pos=routeLatLngAt(shapePts, (simSelectedMinute*60-d.departure)/(d.arrival-d.departure));
+    if(!pos){
+      var st=DATA.stopTimes[d.trip.trip_id]||[], first=st[0], stop=first?DATA.stops[first.stop_id]:null;
+      if(stop && stop.stop_lat!==null && stop.stop_lon!==null) pos=[stop.stop_lat,stop.stop_lon];
+    }
+    if(!pos) return;
+    L.marker(pos,{icon:vehicleIcon(routeShort,d.dir)}).addTo(vehicles)
+      .bindPopup('<b>'+esc(routeShort)+' · '+esc(dirName(d.dir))+'</b><br>Sale '+secsToTime(d.departure)+' · Llega '+secsToTime(d.arrival)+'<br>'+esc(d.headsign||''));
+    bounds.push(pos);
+  });
+  simShapeLayer=shapes.addTo(simMap);
+  simVehicleLayer=vehicles.addTo(simMap);
+  if(bounds.length) simMap.fitBounds(bounds,{padding:[24,24]});
+  var count=document.getElementById('sim-count');
+  if(count) count.textContent=active.length+' buses activos · '+minsToClock(simSelectedMinute);
+  renderSimulationActiveTable(active, route);
+}
+function renderSimulationActiveTable(active, route){
+  var w=document.getElementById('sim-active-wrap');
+  if(!w) return;
+  if(!active.length){ w.innerHTML='<div class="no-data">No hay buses activos para este recorrido a la hora seleccionada.</div>'; return; }
+  var rows=active.sort(function(a,b){return a.departure-b.departure;}).map(function(d){
+    var progress=Math.round(((simSelectedMinute*60-d.departure)/(d.arrival-d.departure))*100);
+    return '<tr><td><span class="route-badge" style="background:'+rColor(route)+';color:'+rText(route)+'">'+esc(route.route_short_name||route.route_id||'')+'</span></td><td>'+esc(dirName(d.dir))+'</td><td>'+secsToTime(d.departure)+'</td><td>'+secsToTime(d.arrival)+'</td><td>'+progress+'%</td><td>'+esc(d.headsign||'—')+'</td></tr>';
+  }).join('');
+  w.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>Recorrido</th><th>Sentido</th><th>Salida</th><th>Llegada</th><th>Avance estimado</th><th>Destino</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+function minsToClock(mins){
+  mins=((Number(mins)||0)%1440+1440)%1440;
+  return String(Math.floor(mins/60)).padStart(2,'0')+':'+String(mins%60).padStart(2,'0');
+}
+function onSimTimeSlide(v){
+  simSelectedMinute=Number(v)||0;
+  var label=document.getElementById('sim-time-label'); if(label) label.textContent=minsToClock(simSelectedMinute);
+  renderSimulation();
+}
+function stepSimTime(delta){
+  var slider=document.getElementById('sim-time-slider');
+  var next=((simSelectedMinute+delta)%1440+1440)%1440;
+  simSelectedMinute=next;
+  if(slider) slider.value=next;
+  onSimTimeSlide(next);
+}
+
+/* Reemplazo final de switchTab para incluir Simulación GTFS y mantener Control PO/GTFS */
+function switchTab(tab){
+  var tabs=['ruta','paradero','parametros','control','simulacion','comparar'];
+  document.querySelectorAll('.tab-btn').forEach(function(b,i){b.classList.toggle('active',tabs[i]===tab);});
+  document.getElementById('tab-ruta').style.display=tab==='ruta'?'block':'none';
+  document.getElementById('tab-paradero').style.display=tab==='paradero'?'block':'none';
+  document.getElementById('tab-parametros').style.display=tab==='parametros'?'block':'none';
+  var control=document.getElementById('tab-control');
+  if(control) control.style.display=tab==='control'?'block':'none';
+  var sim=document.getElementById('tab-simulacion');
+  if(sim) sim.style.display=tab==='simulacion'?'block':'none';
+  document.getElementById('tab-comparar').style.display=tab==='comparar'?'block':'none';
+  if(tab==='ruta' && leafMap) setTimeout(function(){leafMap.invalidateSize();},50);
+  if(tab==='paradero' && stopLeafMap) setTimeout(function(){stopLeafMap.invalidateSize(); renderStopMap(activeStop);},70);
+  if(tab==='parametros') ensureParamsLoaded();
+  if(tab==='control') renderPoComparison();
+  if(tab==='simulacion') setTimeout(function(){ initSimulationMap(); syncSimulationFromRoute(); simMap.invalidateSize(); renderSimulation(); },70);
+}
+
