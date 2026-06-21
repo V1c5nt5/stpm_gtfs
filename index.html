@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Horarios RED — GTFS Viewer</title>
-<!-- v1.2.1.2 -->
+<!-- v1.2.1.4 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="assets/css/app.css?v=1.2.1.2">
+<link rel="stylesheet" href="assets/css/app.css?v=1.2.1.4">
 
 </head>
 <body>
@@ -28,23 +28,26 @@
 <div id="upload-section">
   <div class="upload-zone" id="dropzone">
     <div class="upload-icon">&#128230;</div>
-    <h2>Carga datos GTFS</h2>
-    <p>Selecciona GTFS + DECO desde GitHub/data.</p>
+    <h2>Carga de datos</h2>
+    <p>Selecciona una fecha para cargar los datos disponibles.</p>
 
     <div class="github-loader">
-      <div class="fg" style="text-align:left;flex:1;min-width:190px">
-        <label>GTFS GitHub</label>
-        <select id="github-main-select"><option value="">Buscando GTFS...</option></select>
+      <div class="fg start-date-field">
+        <label for="dataset-date-select">Fecha de los datos</label>
+        <select id="dataset-date-select" onchange="updateStartDatasetAvailability()">
+          <option value="">Buscando fechas disponibles...</option>
+        </select>
       </div>
-      <div class="fg" style="text-align:left;flex:1;min-width:190px">
-        <label>DECO</label>
-        <select id="github-deco-select"><option value="">Buscando DECO...</option></select>
+
+      <div class="dataset-availability" id="dataset-availability" aria-live="polite">
+        <div class="availability-empty">Selecciona una fecha para revisar los datos disponibles.</div>
       </div>
-      <div class="fg" style="text-align:left;flex:1;min-width:190px">
-        <label>Consolidado parámetros</label>
-        <select id="param-start-select" onchange="syncParamSelects('start')"><option value="">Buscando consolidado...</option></select>
+
+      <div class="dataset-link-note" id="dataset-link-note">
+        DECO y parámetros se vinculan al GTFS con una diferencia máxima de 6 días.
       </div>
-      <button class="btn-upload" type="button" onclick="loadSelectedMainGTFS()">Cargar</button>
+
+      <button class="btn-upload" id="btn-load-dataset" type="button" onclick="loadSelectedMainGTFS()" disabled>Cargar datos disponibles</button>
     </div>
     <div class="operator-note">Los archivos se cargan exclusivamente desde GitHub/data.</div>
     <div class="progress-bar" id="prog-bar" style="display:none"><div class="progress-fill" id="prog-fill"></div></div>
@@ -54,11 +57,11 @@
 
 <div id="app">
   <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('ruta')">Por Ruta</button>
-    <button class="tab-btn" onclick="switchTab('paradero')">Por Paradero</button>
-    <button class="tab-btn" onclick="switchTab('parametros')">Parámetros</button>
-    <button class="tab-btn" onclick="switchTab('simulacion')">Ver Simulación GTFS</button>
-    <button class="tab-btn" onclick="switchTab('comparar')">Comparar GTFS</button>
+    <button class="tab-btn active" data-tab="ruta" onclick="switchTab('ruta')">Por Ruta</button>
+    <button class="tab-btn" data-tab="paradero" onclick="switchTab('paradero')">Por Paradero</button>
+    <button class="tab-btn" data-tab="parametros" onclick="switchTab('parametros')">Parámetros</button>
+    <button class="tab-btn" data-tab="simulacion" onclick="switchTab('simulacion')">Ver Simulación GTFS</button>
+    <button class="tab-btn" data-tab="comparar" onclick="switchTab('comparar')">Comparar GTFS</button>
   </div>
   <div class="data-age" id="data-age"></div>
 
@@ -341,8 +344,8 @@
   </div>
 </div>
 
-<footer class="site-version" aria-label="Versión de la aplicación">Versión v1.2.1.2</footer>
+<footer class="site-version" aria-label="Versión de la aplicación">Versión v1.2.1.4</footer>
 
-<script src="assets/js/app.js?v=1.2.1.2"></script>
+<script src="assets/js/app.js?v=1.2.1.4"></script>
 </body>
 </html>

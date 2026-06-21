@@ -1,4 +1,4 @@
-/* v1.2.1.2 — estilos principales del GTFS Viewer */
+/* v1.2.1.4 — estilos principales del GTFS Viewer */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--red:#AF2B1E;--bg:#f2f2f0;--card:#fff;--border:rgba(0,0,0,0.09);--text:#1a1a1a;--muted:#666;--radius:10px;--rsm:6px}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:15px;min-height:100vh}
@@ -12,8 +12,22 @@ header h1{font-size:17px;font-weight:600;flex:1}
 .upload-icon{font-size:44px;margin-bottom:14px}
 .upload-zone h2{font-size:17px;margin-bottom:6px}
 .upload-zone p{color:var(--muted);font-size:14px}
-.github-loader{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:end;margin-top:18px;padding:14px;border:1px solid var(--border);border-radius:var(--rsm);background:#fafafa;cursor:default}
-.github-loader .btn-upload{grid-column:1/-1;width:100%;margin-top:0;white-space:normal}
+.github-loader{display:grid;grid-template-columns:1fr;gap:12px;align-items:end;margin-top:18px;padding:14px;border:1px solid var(--border);border-radius:var(--rsm);background:#fafafa;cursor:default}
+.github-loader .btn-upload{width:100%;margin-top:0;white-space:normal}
+.start-date-field{width:100%;text-align:left}
+.dataset-availability{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;text-align:left}
+.availability-item{min-width:0;padding:10px;border:1px solid var(--border);border-radius:var(--rsm);background:#fff}
+.availability-item.available{border-left:3px solid #2e7d32}
+.availability-item.missing{border-left:3px solid var(--red)}
+.availability-label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.availability-item strong{display:block;font-size:13px;margin-bottom:3px}
+.availability-item small{display:block;color:var(--muted);font-size:11px;line-height:1.35;overflow-wrap:anywhere}
+.availability-empty{grid-column:1/-1;padding:12px;border:1px dashed var(--border);border-radius:var(--rsm);color:var(--muted);font-size:13px;text-align:center}
+.dataset-link-note{font-size:12px;line-height:1.4;color:var(--muted);text-align:left}
+.dataset-link-note.is-ready{color:#2e7d32}
+.dataset-link-note.is-warning{color:#9a3412}
+.btn-upload:disabled{cursor:not-allowed;opacity:.55}
+@media(max-width:650px){.dataset-availability{grid-template-columns:1fr}}
 .manual-loader{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px}
 .manual-loader .btn-upload{width:100%;margin-top:0;text-align:center;padding-left:10px;padding-right:10px;white-space:normal}
 .upload-separator{font-size:12px;color:var(--muted);margin:14px 0 2px;text-transform:uppercase;letter-spacing:.06em}
@@ -130,7 +144,7 @@ tbody tr:hover{background:#fafafa}
 .compare-list td small{color:var(--muted)}
 
 
-/* v1.2.1.2 — salidas, simulación y comparación GTFS */
+/* v1.2.1.4 — salidas, simulación y comparación GTFS */
 .tabs{flex-wrap:wrap}
 .route-table-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 #sim-map{height:560px;border-radius:var(--radius);border:1px solid var(--border);margin-bottom:10px;z-index:1}

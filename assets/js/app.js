@@ -1,4 +1,4 @@
-/* v1.2.1.2 — lógica principal del GTFS Viewer
+/* v1.2.1.4 — lógica principal del GTFS Viewer
    Separado desde el HTML para facilitar mantenimiento en GitHub Pages. */
 
 var SVC = {L:'Lunes a Viernes', S:'Sábado', D:'Domingo', F:'Festivo', LJ:'Lun a Jue', V:'Viernes'};
@@ -11,11 +11,13 @@ var GITHUB_DATA_API = 'https://api.github.com/repos/'+GITHUB_OWNER+'/'+GITHUB_RE
 var GITHUB_GTFS_FILES = [];
 var GITHUB_DECO_FILES = [];
 var GITHUB_PARAM_FILES = [];
+var START_DATASET = null;
+var DATASET_MAX_GAP_DAYS = 6;
 var MANUAL_GTFS_FILE = null, MANUAL_DECO_FILE = null;
 function freshData(){
   return {
     agency:{}, routes:{}, trips:{}, frequencies:[], frequenciesByTrip:{}, stopTimes:{}, stops:{}, stopIndex:{}, stopTrips:{}, shapes:{},
-    calendar:{}, calendarDates:[], feedInfo:null, levels:{}, pathways:[], pathwaysByStop:{}, serviceIds:[], tripsByRoute:{}, tripsByService:{}, tripsByStop:{}, decoRows:[], decoByRoute:{}, operators:[], sourceNames:{gtfs:'',deco:'',param:''}, sourceDates:{gtfs:null,deco:null,param:null}, decoCompatible:false, decoDateGapDays:null
+    calendar:{}, calendarDates:[], feedInfo:null, levels:{}, pathways:[], pathwaysByStop:{}, serviceIds:[], tripsByRoute:{}, tripsByService:{}, tripsByStop:{}, decoRows:[], decoByRoute:{}, operators:[], sourceNames:{gtfs:'',deco:'',param:''}, sourceDates:{gtfs:null,deco:null,param:null}, availableSources:{gtfs:false,deco:false,param:false}, decoCompatible:false, decoDateGapDays:null
   };
 }
 var freqChart = null, stopChart = null;
@@ -78,27 +80,171 @@ async function initGitHubGTFSList(){
 function fillOneSelect(id, files, placeholder, selectedIndex){
   var sel=document.getElementById(id); if(!sel) return;
   sel.innerHTML='';
-  if(!files.length){ var empty=document.createElement('option'); empty.value=''; empty.textContent=placeholder; sel.appendChild(empty); return; }
+  if(!files.length){
+    var empty=document.createElement('option');
+    empty.value='';
+    empty.textContent=placeholder;
+    sel.appendChild(empty);
+    return;
+  }
   files.forEach(function(f,i){
-    var o=document.createElement('option'); o.value=f.download_url; o.textContent=f.name; o.dataset.name=f.name; sel.appendChild(o);
+    var o=document.createElement('option');
+    o.value=f.download_url;
+    o.textContent=f.name;
+    o.dataset.name=f.name;
+    sel.appendChild(o);
     if(i===selectedIndex) o.selected=true;
   });
 }
+function dateKey(dt){
+  if(!dt) return '';
+  return String(dt.getFullYear())+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+}
+function dateFromKey(key){
+  var m=String(key||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m) return null;
+  var dt=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));
+  return isNaN(dt.getTime()) ? null : dt;
+}
+function formatDatasetDate(dt){
+  if(!dt) return 'Fecha no detectada';
+  try{
+    return new Intl.DateTimeFormat('es-CL',{day:'numeric',month:'long',year:'numeric'}).format(dt);
+  }catch(e){
+    return String(dt.getDate()).padStart(2,'0')+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+dt.getFullYear();
+  }
+}
+function fileWithDate(file){
+  if(!file) return null;
+  var dt=extractDateFromName(file.name);
+  return dt ? {file:file,date:dt,key:dateKey(dt)} : null;
+}
+function datedFiles(files){
+  return (files||[]).map(fileWithDate).filter(Boolean);
+}
+function newestNamedFile(items){
+  return items.slice().sort(function(a,b){
+    return String(a.file.name).localeCompare(String(b.file.name),undefined,{numeric:true});
+  }).pop() || null;
+}
+function linkedDatasetForDate(targetDate){
+  var targetKey=dateKey(targetDate);
+  var gtfsExact=datedFiles(GITHUB_GTFS_FILES).filter(function(item){return item.key===targetKey;});
+  var gtfsItem=newestNamedFile(gtfsExact);
+  if(!gtfsItem) return {date:targetDate,gtfs:null,deco:null,param:null,complete:false,availableCount:0};
+
+  function nearestWithinWindow(files){
+    return datedFiles(files).filter(function(item){
+      return dateGapDays(targetDate,item.date)<=DATASET_MAX_GAP_DAYS;
+    }).sort(function(a,b){
+      return dateGapDays(targetDate,a.date)-dateGapDays(targetDate,b.date) ||
+        String(b.file.name).localeCompare(String(a.file.name),undefined,{numeric:true});
+    })[0] || null;
+  }
+
+  var decoItem=nearestWithinWindow(GITHUB_DECO_FILES);
+  var paramItem=nearestWithinWindow(GITHUB_PARAM_FILES);
+  return {
+    date:targetDate,
+    gtfs:gtfsItem,
+    deco:decoItem,
+    param:paramItem,
+    complete:!!(decoItem && paramItem),
+    availableCount:1+(decoItem?1:0)+(paramItem?1:0)
+  };
+}
+function availabilityDetail(item, targetDate){
+  if(!item) return 'No encontrado dentro de 6 días';
+  var gap=dateGapDays(targetDate,item.date);
+  var relation=gap===0 ? 'misma fecha' : (gap===1 ? '1 día de diferencia' : gap+' días de diferencia');
+  return esc(item.file.name)+' · '+relation;
+}
+function availabilityCard(label,item,targetDate){
+  var available=!!item;
+  return '<div class="availability-item '+(available?'available':'missing')+'">'+
+    '<span class="availability-label">'+esc(label)+'</span>'+
+    '<strong>'+(available?'Disponible':'No disponible')+'</strong>'+
+    '<small>'+availabilityDetail(item,targetDate)+'</small>'+
+  '</div>';
+}
+function fillStartDateSelect(){
+  var sel=document.getElementById('dataset-date-select');
+  if(!sel) return;
+  var old=sel.value;
+  var groups={};
+  datedFiles(GITHUB_GTFS_FILES).forEach(function(item){groups[item.key]=item.date;});
+  var keys=Object.keys(groups).sort();
+  sel.innerHTML='';
+  if(!keys.length){
+    var empty=document.createElement('option');
+    empty.value='';
+    empty.textContent='No hay fechas GTFS disponibles';
+    sel.appendChild(empty);
+    START_DATASET=null;
+    updateStartDatasetAvailability();
+    return;
+  }
+  keys.forEach(function(key){
+    var o=document.createElement('option');
+    o.value=key;
+    o.textContent=formatDatasetDate(groups[key]);
+    sel.appendChild(o);
+  });
+  sel.value=keys.indexOf(old)!==-1 ? old : keys[keys.length-1];
+  updateStartDatasetAvailability();
+}
+function updateStartDatasetAvailability(){
+  var sel=document.getElementById('dataset-date-select');
+  var wrap=document.getElementById('dataset-availability');
+  var note=document.getElementById('dataset-link-note');
+  var btn=document.getElementById('btn-load-dataset');
+  var targetDate=sel ? dateFromKey(sel.value) : null;
+  START_DATASET=targetDate ? linkedDatasetForDate(targetDate) : null;
+
+  if(!wrap || !note || !btn) return;
+  if(!START_DATASET || !START_DATASET.gtfs){
+    wrap.innerHTML='<div class="availability-empty">No hay un GTFS con fecha válida para esta selección.</div>';
+    note.textContent='No hay datos base disponibles para cargar.';
+    note.className='dataset-link-note is-warning';
+    btn.disabled=true;
+    return;
+  }
+
+  wrap.innerHTML=
+    availabilityCard('GTFS',START_DATASET.gtfs,targetDate)+
+    availabilityCard('DECO',START_DATASET.deco,targetDate)+
+    availabilityCard('Parámetros',START_DATASET.param,targetDate);
+
+  var missing=[];
+  if(!START_DATASET.deco) missing.push('DECO');
+  if(!START_DATASET.param) missing.push('Parámetros');
+  if(!missing.length){
+    note.textContent='Conjunto completo disponible. Cada fuente está a un máximo de 6 días del GTFS.';
+    note.className='dataset-link-note is-ready';
+  }else{
+    note.textContent='Carga parcial disponible. No se encontró '+missing.join(' ni ')+' dentro de 6 días; se mostrarán solo las pestañas compatibles.';
+    note.className='dataset-link-note is-warning';
+  }
+  btn.disabled=false;
+}
 function fillGitHubSelects(){
-  fillOneSelect('github-main-select',GITHUB_GTFS_FILES,'Sin GTFS disponibles',Math.max(0,GITHUB_GTFS_FILES.length-1));
-  fillOneSelect('github-deco-select',GITHUB_DECO_FILES,'Sin DECO disponible',Math.max(0,GITHUB_DECO_FILES.length-1));
   fillOneSelect('compare-base-select',GITHUB_GTFS_FILES,'Sin GTFS disponibles',0);
   fillOneSelect('compare-target-select',GITHUB_GTFS_FILES,'Sin GTFS disponibles',Math.max(0,GITHUB_GTFS_FILES.length-1));
-  fillOneSelect('param-start-select',GITHUB_PARAM_FILES,'Sin consolidado disponible',Math.max(0,GITHUB_PARAM_FILES.length-1));
   fillOneSelect('param-file-select',GITHUB_PARAM_FILES,'Sin consolidado disponible',Math.max(0,GITHUB_PARAM_FILES.length-1));
-  syncParamSelects('start');
+  fillStartDateSelect();
 }
 function syncParamSelects(source){
-  var start=document.getElementById('param-start-select');
   var tab=document.getElementById('param-file-select');
-  if(!start || !tab) return;
-  if(source==='tab' && tab.value) start.value=tab.value;
-  else if(start.value) tab.value=start.value;
+  if(!tab) return;
+  if(source==='start'){
+    if(START_DATASET && START_DATASET.param){
+      tab.value=START_DATASET.param.file.download_url;
+      tab.disabled=false;
+    }else{
+      tab.value='';
+      tab.disabled=true;
+    }
+  }
 }
 async function fetchGTFSFileFromURL(url, name){
   var res=await fetch(url,{cache:'no-store'});
@@ -108,20 +254,31 @@ async function fetchGTFSFileFromURL(url, name){
   catch(e){ blob.name=name; return blob; }
 }
 async function loadSelectedMainGTFS(){
-  var sel=document.getElementById('github-main-select'), decoSel=document.getElementById('github-deco-select'), paramSel=document.getElementById('param-start-select');
-  if(!sel || !sel.value){ alert('No hay GTFS seleccionado.'); return; }
-  if(!decoSel || !decoSel.value){ alert('Debes seleccionar un DECO para cargar el sistema.'); return; }
-  if(!paramSel || !paramSel.value){ alert('Debes seleccionar el consolidado de parámetros.'); return; }
-  syncParamSelects('start');
-  var name=sel.options[sel.selectedIndex].dataset.name || sel.options[sel.selectedIndex].textContent || 'gtfs.zip';
-  var decoName=decoSel.options[decoSel.selectedIndex].dataset.name || decoSel.options[decoSel.selectedIndex].textContent || 'deco.zip';
-  prog(3,'Descargando GTFS y DECO desde GitHub...');
-  try{
-    var file=await fetchGTFSFileFromURL(sel.value,name);
-    var decoFile=await fetchGTFSFileFromURL(decoSel.value,decoName);
-    await handleFile(file, decoFile);
+  if(!START_DATASET || !START_DATASET.gtfs){
+    alert('No hay un GTFS disponible para la fecha seleccionada.');
+    return;
   }
-  catch(err){ console.error(err); prog(0,'No se pudo descargar el GTFS o DECO desde GitHub. Revisa el repositorio data.'); }
+  var gtfs=START_DATASET.gtfs.file;
+  var deco=START_DATASET.deco ? START_DATASET.deco.file : null;
+  var paramItem=START_DATASET.param || null;
+  syncParamSelects('start');
+  prog(3,deco ? 'Descargando GTFS y DECO desde GitHub...' : 'Descargando GTFS desde GitHub...');
+  try{
+    var file=await fetchGTFSFileFromURL(gtfs.download_url,gtfs.name);
+    var decoFile=null;
+    if(deco){
+      try{
+        decoFile=await fetchGTFSFileFromURL(deco.download_url,deco.name);
+      }catch(decoErr){
+        console.warn('No se pudo descargar el DECO vinculado. Se continuará solo con GTFS.',decoErr);
+      }
+    }
+    await handleFile(file,decoFile,paramItem);
+  }
+  catch(err){
+    console.error(err);
+    prog(0,'No se pudo descargar el GTFS seleccionado desde GitHub.');
+  }
 }
 function updateManualLabel(){
   var el=document.getElementById('manual-files-label'); if(!el) return;
@@ -130,8 +287,8 @@ function updateManualLabel(){
   el.textContent=g+' · '+d;
 }
 async function loadManualPair(){
-  if(!MANUAL_GTFS_FILE || !MANUAL_DECO_FILE){ alert('Debes seleccionar GTFS y DECO antes de cargar.'); return; }
-  await handleFile(MANUAL_GTFS_FILE, MANUAL_DECO_FILE);
+  if(!MANUAL_GTFS_FILE){ alert('Debes seleccionar un GTFS antes de cargar.'); return; }
+  await handleFile(MANUAL_GTFS_FILE,MANUAL_DECO_FILE,null);
 }
 
 document.addEventListener('DOMContentLoaded', initGitHubGTFSList);
@@ -168,9 +325,19 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){retu
 function unique(arr){ return Array.from(new Set(arr.filter(function(x){return x!==undefined&&x!==null&&x!=='';}))); }
 
 function extractDateFromName(name){
-  var m=String(name||'').match(/(20\d{6})/); if(!m) return null;
-  var y=Number(m[1].slice(0,4)), mo=Number(m[1].slice(4,6))-1, d=Number(m[1].slice(6,8));
-  var dt=new Date(y,mo,d); return isNaN(dt.getTime())?null:dt;
+  var value=String(name||'');
+  var m=value.match(/(20\d{2})[-_]?([01]\d)[-_]?([0-3]\d)/);
+  var y,mo,d;
+  if(m){
+    y=Number(m[1]); mo=Number(m[2])-1; d=Number(m[3]);
+  }else{
+    m=value.match(/([0-3]\d)[-_]([01]\d)[-_](20\d{2})/);
+    if(!m) return null;
+    d=Number(m[1]); mo=Number(m[2])-1; y=Number(m[3]);
+  }
+  var dt=new Date(y,mo,d);
+  if(isNaN(dt.getTime()) || dt.getFullYear()!==y || dt.getMonth()!==mo || dt.getDate()!==d) return null;
+  return dt;
 }
 function daysAgo(dt){
   if(!dt) return null;
@@ -192,7 +359,7 @@ function dateGapDays(a, b){
 function updateDecoCompatibility(){
   var gap=dateGapDays(DATA.sourceDates.gtfs,DATA.sourceDates.deco);
   DATA.decoDateGapDays=gap;
-  DATA.decoCompatible=gap!==null && gap<=7;
+  DATA.decoCompatible=gap!==null && gap<=6;
 }
 function normalizeOpKey(v){ return String(v||'').trim().toLowerCase().replace(/\s+/g,''); }
 function operatorFromDeco(row){ return row ? String(row.CLI_DSC||row.OPERADOR||row.operador||'Operador no informado').trim() : 'Sin DECO'; }
@@ -216,7 +383,9 @@ function fillOperatorSelect(selId, keepValue){
     sel.appendChild(all);
     sel.value='__all';
     sel.disabled=true;
-    sel.title='GTFS y DECO no tienen fechas iguales o similares.';
+    sel.title=DATA.availableSources.deco
+      ? 'GTFS y DECO tienen más de 6 días de diferencia o una fecha no detectable.'
+      : 'No hay un DECO vinculado para esta fecha.';
     return;
   }
   all.textContent='Todos los operadores'; sel.appendChild(all);
@@ -227,7 +396,9 @@ function fillOperatorSelect(selId, keepValue){
 }
 function refreshDataAge(){
   var el=document.getElementById('data-age'); if(!el) return;
-  var decoText=DATA.decoCompatible ? ageText('DECO',DATA.sourceDates.deco) : 'DECO: sin datos iguales o similares';
+  var decoText=DATA.decoCompatible
+    ? ageText('DECO',DATA.sourceDates.deco)
+    : (DATA.availableSources.deco ? 'DECO: sin datos iguales o similares' : 'DECO: no disponible');
   el.textContent=ageText('GTFS',DATA.sourceDates.gtfs)+' · '+decoText;
 }
 function sortServices(a,b){
@@ -312,22 +483,39 @@ function parseGTFSInWorker(file){
   });
 }
 
-async function handleFile(file, decoFile){
+async function handleFile(file, decoFile, paramItem){
   if(!file) return;
-  if(!decoFile){ alert('Debes ingresar un archivo DECO junto al GTFS.'); return; }
   DATA = freshData();
+  DATA.availableSources.gtfs=true;
+  DATA.availableSources.deco=!!decoFile;
+  DATA.availableSources.param=!!(paramItem && paramItem.file);
   DATA.sourceNames.gtfs=file.name||'gtfs.zip';
-  DATA.sourceNames.deco=decoFile.name||'deco';
+  DATA.sourceNames.deco=decoFile ? (decoFile.name||'deco') : '';
+  DATA.sourceNames.param=DATA.availableSources.param ? paramItem.file.name : '';
   DATA.sourceDates.gtfs=extractDateFromName(DATA.sourceNames.gtfs);
-  DATA.sourceDates.deco=extractDateFromName(DATA.sourceNames.deco);
+  DATA.sourceDates.deco=decoFile ? extractDateFromName(DATA.sourceNames.deco) : null;
+  DATA.sourceDates.param=DATA.availableSources.param ? paramItem.date : null;
   updateDecoCompatibility();
-  prog(5, 'Leyendo DECO...');
   try{
-    await parseDECOFile(decoFile);
-    prog(8, 'Procesando GTFS...');
+    if(decoFile){
+      prog(5,'Leyendo DECO...');
+      try{
+        await parseDECOFile(decoFile);
+      }catch(decoErr){
+        console.warn('El DECO no pudo procesarse. Se continuará solo con GTFS.',decoErr);
+        DATA.decoRows=[];
+        DATA.decoByRoute={};
+        DATA.operators=[];
+        DATA.availableSources.deco=false;
+        DATA.sourceNames.deco='';
+        DATA.sourceDates.deco=null;
+        updateDecoCompatibility();
+      }
+    }
+    prog(8,'Procesando GTFS...');
     var parsed = await parseGTFSInWorker(file);
     Object.keys(parsed).forEach(function(k){ DATA[k]=parsed[k]; });
-    prog(100, 'Listo');
+    prog(100,'Listo');
     setTimeout(function(){
       document.getElementById('upload-section').style.display='none';
       document.getElementById('btn-reload').style.display='block';
@@ -335,12 +523,38 @@ async function handleFile(file, decoFile){
       document.getElementById('app').style.display='block';
       initMap();
       renderMap();
-    }, 160);
+    },160);
   }catch(err){
     console.error(err);
-    prog(0, err.message || 'No se pudo cargar el GTFS.');
+    prog(0,err.message || 'No se pudo cargar el GTFS.');
     alert(err.message || 'No se pudo cargar el GTFS.');
   }
+}
+
+function tabAvailability(){
+  var gtfs=!!(DATA.availableSources && DATA.availableSources.gtfs);
+  var params=!!(DATA.availableSources && DATA.availableSources.param);
+  return {
+    ruta:gtfs,
+    paradero:gtfs,
+    parametros:params,
+    simulacion:gtfs,
+    comparar:gtfs
+  };
+}
+function configureAvailableTabs(){
+  var available=tabAvailability();
+  document.querySelectorAll('.tab-btn[data-tab]').forEach(function(button){
+    var tab=button.getAttribute('data-tab');
+    button.style.display=available[tab] ? '' : 'none';
+    button.setAttribute('aria-hidden',available[tab] ? 'false' : 'true');
+  });
+  Object.keys(available).forEach(function(tab){
+    var panel=document.getElementById('tab-'+tab);
+    if(panel && !available[tab]) panel.style.display='none';
+  });
+  var first=['ruta','paradero','parametros','simulacion','comparar'].find(function(tab){return available[tab];});
+  if(first) switchTab(first);
 }
 
 function buildUI(){
@@ -379,6 +593,7 @@ function buildUI(){
   setupStopSearch();
   updateRouteServiceOptions();
   renderAll();
+  configureAvailableTabs();
 }
 
 
@@ -1397,7 +1612,7 @@ async function compareSelectedGTFS(){
 }
 
 
-/* v1.2.1.2 — simulación GTFS y salidas por recorrido */
+/* v1.2.1.4 — simulación GTFS y salidas por recorrido */
 function setupSimulationSelectors(){
   fillOperatorSelect('sim-operator');
   var simR=document.getElementById('sim-route');
@@ -1596,8 +1811,11 @@ document.addEventListener('visibilitychange',function(){
 
 /* Navegación final: Simulación GTFS y Comparar GTFS */
 function switchTab(tab){
-  var tabs=['ruta','paradero','parametros','simulacion','comparar'];
-  document.querySelectorAll('.tab-btn').forEach(function(b,i){b.classList.toggle('active',tabs[i]===tab);});
+  var available=tabAvailability();
+  if(!available[tab]) return;
+  document.querySelectorAll('.tab-btn[data-tab]').forEach(function(button){
+    button.classList.toggle('active',button.getAttribute('data-tab')===tab);
+  });
   document.getElementById('tab-ruta').style.display=tab==='ruta'?'block':'none';
   document.getElementById('tab-paradero').style.display=tab==='paradero'?'block':'none';
   document.getElementById('tab-parametros').style.display=tab==='parametros'?'block':'none';
