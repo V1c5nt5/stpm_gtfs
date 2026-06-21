@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Horarios RED — GTFS Viewer</title>
-<!-- v2.4.0 -->
+<!-- v1.2.1 fixed -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="assets/css/app.css?v=2.4.0">
+<link rel="stylesheet" href="assets/css/app.css?v=1.2.1">
 
 </head>
 <body>
@@ -57,7 +57,6 @@
     <button class="tab-btn active" onclick="switchTab('ruta')">Por Ruta</button>
     <button class="tab-btn" onclick="switchTab('paradero')">Por Paradero</button>
     <button class="tab-btn" onclick="switchTab('parametros')">Parámetros</button>
-    <button class="tab-btn" onclick="switchTab('control')">Control PO/GTFS</button>
     <button class="tab-btn" onclick="switchTab('simulacion')">Ver Simulación GTFS</button>
     <button class="tab-btn" onclick="switchTab('comparar')">Comparar GTFS</button>
   </div>
@@ -229,71 +228,6 @@
   </div>
 
 
-  <!-- TAB CONTROL PO / GTFS -->
-  <div id="tab-control" style="display:none">
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-title">Control operativo: Parámetros / GTFS / DECO</div>
-      <div class="compare-upload">
-        <button class="btn-upload secondary-btn" type="button" onclick="runPoComparison()" style="margin-top:0">Recalcular control</button>
-        <button class="btn-upload secondary-btn" type="button" onclick="exportControlVisibleCSV()" style="margin-top:0">Exportar CSV</button>
-      </div>
-      <div id="po-status" class="param-status">Primero carga GTFS + DECO. Luego puedes usar el consolidado cargado desde GitHub/data para el control disponible.</div>
-      <div class="param-sheet-note">El control cruza empresas, recorridos, sentidos, salidas por media hora y secuencias de paradas. No agrega librerías nuevas.</div>
-    </div>
-
-    <div id="po-panel" style="display:none">
-      <div class="filters">
-        <div class="fg" style="min-width:200px">
-          <label>Empresa / Unidad</label>
-          <select id="po-company-filter"></select>
-        </div>
-        <div class="fg" style="min-width:160px">
-          <label>Tipo de día</label>
-          <select id="po-day-filter"></select>
-        </div>
-        <div class="fg" style="min-width:150px">
-          <label>Sentido</label>
-          <select id="po-dir-filter"></select>
-        </div>
-        <div class="fg" style="flex:1;min-width:220px">
-          <label>Buscar recorrido</label>
-          <input type="text" id="po-route-search" placeholder="Ej: 101, 104, B01, F10..." autocomplete="off">
-        </div>
-      </div>
-
-      <div class="param-summary" id="po-summary"></div>
-
-      <div class="grid2">
-        <div class="card">
-          <div class="card-title">Comparación por empresa</div>
-          <div id="po-company-wrap" class="compare-list"></div>
-        </div>
-        <div class="card">
-          <div class="card-title">Recorridos: PO / GTFS / DECO</div>
-          <div id="po-routes-wrap" class="compare-list"></div>
-        </div>
-      </div>
-
-      <div class="grid2">
-        <div class="card">
-          <div class="card-title">PO Anexo 3: salidas por media hora vs GTFS</div>
-          <div id="po-params-wrap" class="compare-list"></div>
-        </div>
-        <div class="card">
-          <div class="card-title">Registro de paradas PO vs GTFS</div>
-          <div id="po-stops-wrap" class="compare-list"></div>
-        </div>
-      </div>
-
-      <div class="card" style="margin-top:14px">
-        <div class="card-title">Consolidado de parámetros cargado vs GTFS</div>
-        <div class="param-sheet-note" id="param-control-note">Carga un XLSX de parámetros desde la pestaña Parámetros o desde el botón superior.</div>
-        <div id="param-gtfs-wrap" class="compare-list"></div>
-      </div>
-    </div>
-  </div>
-
-
   <!-- TAB SIMULACION GTFS -->
   <div id="tab-simulacion" style="display:none">
     <div class="card" style="margin-bottom:14px">
@@ -326,6 +260,8 @@
         <div class="hour-val" id="sim-time-label">08:00</div>
         <button class="all-btn" type="button" onclick="stepSimTime(-10)">−10 min</button>
         <button class="all-btn" type="button" onclick="stepSimTime(10)">+10 min</button>
+        <button class="all-btn" id="sim-auto-btn" type="button" onclick="toggleSimAuto()" aria-pressed="false">▶ Avance automático</button>
+        <span class="sim-auto-note">+10 min cada 2 s</span>
       </div>
       <div class="map-legend">
         <div class="legend-item"><div class="legend-line" style="background:#2563eb"></div><span>Ida</span></div>
@@ -362,22 +298,51 @@
     </div>
     <div id="compare-results" style="display:none">
       <div class="compare-summary" id="compare-summary"></div>
+      <div class="filters compare-analysis-filters">
+        <div class="fg" style="min-width:220px;flex:1">
+          <label>Buscar recorrido modificado</label>
+          <input type="text" id="compare-route-search" placeholder="Ej: 101, B12, F10..." autocomplete="off" oninput="renderCompareAnalysis()">
+        </div>
+        <div class="fg" style="min-width:190px">
+          <label>Tipo de cambio</label>
+          <select id="compare-change-filter" onchange="renderCompareAnalysis()">
+            <option value="all">Todos los cambios</option>
+            <option value="stops">Trazado / paraderos</option>
+            <option value="frequency">Frecuencia</option>
+            <option value="trips">Viajes / oferta</option>
+            <option value="service">Días / sentidos</option>
+            <option value="metadata">Datos del recorrido</option>
+          </select>
+        </div>
+        <div class="fg" style="min-width:210px">
+          <label>Orden</label>
+          <select id="compare-sort" onchange="renderCompareAnalysis()">
+            <option value="impact">Mayor impacto estimado</option>
+            <option value="frequency">Mayor cambio de frecuencia</option>
+            <option value="trips">Mayor cambio de viajes</option>
+            <option value="route">Código de recorrido</option>
+          </select>
+        </div>
+      </div>
+      <div class="param-sheet-note compare-analysis-note" id="compare-analysis-note"></div>
       <div class="grid2">
         <div class="card"><div class="card-title">Recorridos creados</div><div id="routes-created-wrap" class="compare-list"></div></div>
         <div class="card"><div class="card-title">Recorridos eliminados</div><div id="routes-deleted-wrap" class="compare-list"></div></div>
       </div>
       <div class="grid2">
         <div class="card"><div class="card-title">Recorridos modificados</div><div id="routes-modified-wrap" class="compare-list"></div></div>
-        <div class="card"><div class="card-title">Frecuencias con mayores cambios</div><div id="freq-changes-wrap" class="compare-list"></div></div>
+        <div class="card"><div class="card-title">Recorridos con mayores cambios de frecuencia</div><div id="freq-changes-wrap" class="compare-list"></div></div>
       </div>
       <div class="grid2">
-        <div class="card"><div class="card-title">Paraderos nuevos</div><div id="stops-created-wrap" class="compare-list"></div></div>
-        <div class="card"><div class="card-title">Paraderos eliminados</div><div id="stops-deleted-wrap" class="compare-list"></div></div>
+        <div class="card"><div class="card-title">Paraderos nuevos · PA a PJ</div><div id="stops-created-wrap" class="compare-list"></div></div>
+        <div class="card"><div class="card-title">Paraderos eliminados · PA a PJ</div><div id="stops-deleted-wrap" class="compare-list"></div></div>
       </div>
     </div>
   </div>
 </div>
 
-<script src="assets/js/app.js?v=2.4.0"></script>
+<footer class="site-version" aria-label="Versión de la aplicación">Versión v1.2.1 fixed</footer>
+
+<script src="assets/js/app.js?v=1.2.1"></script>
 </body>
 </html>
