@@ -1,4 +1,4 @@
-/* v1.2.1 fixed — lógica principal del GTFS Viewer
+/* v1.2.1.1 fixed — lógica principal del GTFS Viewer
    Separado desde el HTML para facilitar mantenimiento en GitHub Pages. */
 
 var SVC = {L:'Lunes a Viernes', S:'Sábado', D:'Domingo', F:'Festivo', LJ:'Lun a Jue', V:'Viernes'};
@@ -1051,7 +1051,7 @@ function stopDeltaDetails(oldFeed, newFeed, oldR, newR){
     var newFirst=newSeq.length?stopNameForFeed(newFeed,newSeq[0]):'—';
     var oldLast=oldSeq.length?stopNameForFeed(oldFeed,oldSeq[oldSeq.length-1]):'—';
     var newLast=newSeq.length?stopNameForFeed(newFeed,newSeq[newSeq.length-1]):'—';
-    var txt=dirName(d)+': '+oldSeq.length+' → '+newSeq.length+' paraderos PA–PJ';
+    var txt=dirName(d)+': '+oldSeq.length+' → '+newSeq.length+' paraderos PA–PJ con 1 a 4 dígitos';
     if(added||removed) txt+=' ('+added+' nuevos, '+removed+' eliminados)';
     if(oldFirst!==newFirst || oldLast!==newLast) txt+='; inicio '+oldFirst+' → '+newFirst+'; término '+oldLast+' → '+newLast;
     details.push(txt);
@@ -1116,7 +1116,7 @@ function compareChangeProfile(oldFeed,newFeed,oldR,newR,oldTrips,newTrips,oldHw,
   };
 }
 function isComparableStopId(id){
-  return /^P[A-J]/i.test(String(id||'').trim());
+  return /^P[A-J]\d{1,4}$/.test(String(id||'').trim());
 }
 function signedNumber(value,suffix){
   if(value===null || value===undefined || isNaN(value)) return '—';
@@ -1326,8 +1326,8 @@ function renderCompare(cmp, oldFeed, newFeed){
     ['Rutas creadas',cmp.created.length],
     ['Rutas eliminadas',cmp.deleted.length],
     ['Rutas modificadas',cmp.modified.length],
-    ['Paraderos nuevos PA–PJ',cmp.stopsCreated.length],
-    ['Paraderos eliminados PA–PJ',cmp.stopsDeleted.length],
+    ['Paraderos nuevos PA–PJ válidos',cmp.stopsCreated.length],
+    ['Paraderos eliminados PA–PJ válidos',cmp.stopsDeleted.length],
     ['Rutas con cambios de frecuencia',freqGroups.length],
     ['Frecuencia mejora',improved],
     ['Frecuencia empeora',worsened]
@@ -1369,7 +1369,7 @@ async function compareSelectedGTFS(){
 }
 
 
-/* v1.2.1 fixed — simulación GTFS y salidas por recorrido */
+/* v1.2.1.1 fixed — simulación GTFS y salidas por recorrido */
 function setupSimulationSelectors(){
   fillOperatorSelect('sim-operator');
   var simR=document.getElementById('sim-route');
