@@ -1,4 +1,4 @@
-/* v1.2.1.1 fixed — lógica principal del GTFS Viewer
+/* v1.2.1.2 — lógica principal del GTFS Viewer
    Separado desde el HTML para facilitar mantenimiento en GitHub Pages. */
 
 var SVC = {L:'Lunes a Viernes', S:'Sábado', D:'Domingo', F:'Festivo', LJ:'Lun a Jue', V:'Viernes'};
@@ -15,7 +15,7 @@ var MANUAL_GTFS_FILE = null, MANUAL_DECO_FILE = null;
 function freshData(){
   return {
     agency:{}, routes:{}, trips:{}, frequencies:[], frequenciesByTrip:{}, stopTimes:{}, stops:{}, stopIndex:{}, stopTrips:{}, shapes:{},
-    calendar:{}, calendarDates:[], feedInfo:null, levels:{}, pathways:[], pathwaysByStop:{}, serviceIds:[], tripsByRoute:{}, tripsByService:{}, tripsByStop:{}, decoRows:[], decoByRoute:{}, operators:[], sourceNames:{gtfs:'',deco:'',param:''}, sourceDates:{gtfs:null,deco:null,param:null}
+    calendar:{}, calendarDates:[], feedInfo:null, levels:{}, pathways:[], pathwaysByStop:{}, serviceIds:[], tripsByRoute:{}, tripsByService:{}, tripsByStop:{}, decoRows:[], decoByRoute:{}, operators:[], sourceNames:{gtfs:'',deco:'',param:''}, sourceDates:{gtfs:null,deco:null,param:null}, decoCompatible:false, decoDateGapDays:null
   };
 }
 var freqChart = null, stopChart = null;
@@ -183,25 +183,52 @@ function ageText(label, dt){
   if(d===1) return label+': datos de hace 1 día';
   return label+': datos de hace '+d+' días';
 }
+function dateGapDays(a, b){
+  if(!a || !b) return null;
+  var aDay=Date.UTC(a.getFullYear(),a.getMonth(),a.getDate());
+  var bDay=Date.UTC(b.getFullYear(),b.getMonth(),b.getDate());
+  return Math.round(Math.abs(aDay-bDay)/86400000);
+}
+function updateDecoCompatibility(){
+  var gap=dateGapDays(DATA.sourceDates.gtfs,DATA.sourceDates.deco);
+  DATA.decoDateGapDays=gap;
+  DATA.decoCompatible=gap!==null && gap<=7;
+}
 function normalizeOpKey(v){ return String(v||'').trim().toLowerCase().replace(/\s+/g,''); }
 function operatorFromDeco(row){ return row ? String(row.CLI_DSC||row.OPERADOR||row.operador||'Operador no informado').trim() : 'Sin DECO'; }
 function routeOperator(route){
+  if(!DATA.decoCompatible) return 'No disponible';
   if(!route) return 'Sin DECO';
   var keys=[route.route_short_name, route.route_id].map(normalizeOpKey);
   for(var i=0;i<keys.length;i++){ if(DATA.decoByRoute[keys[i]]) return operatorFromDeco(DATA.decoByRoute[keys[i]][0]); }
   return 'Sin DECO';
 }
-function routeMatchesOperator(route, op){ return !op || op==='__all' || routeOperator(route)===op; }
+function routeMatchesOperator(route, op){
+  if(!DATA.decoCompatible) return true;
+  return !op || op==='__all' || routeOperator(route)===op;
+}
 function fillOperatorSelect(selId, keepValue){
   var sel=document.getElementById(selId); if(!sel) return;
   var old=keepValue || sel.value || '__all'; sel.innerHTML='';
-  var all=document.createElement('option'); all.value='__all'; all.textContent='Todos los operadores'; sel.appendChild(all);
+  var all=document.createElement('option'); all.value='__all';
+  if(!DATA.decoCompatible){
+    all.textContent='Sin filtro por operador';
+    sel.appendChild(all);
+    sel.value='__all';
+    sel.disabled=true;
+    sel.title='GTFS y DECO no tienen fechas iguales o similares.';
+    return;
+  }
+  all.textContent='Todos los operadores'; sel.appendChild(all);
   DATA.operators.forEach(function(op){ var o=document.createElement('option'); o.value=op; o.textContent=op; sel.appendChild(o); });
   sel.value=DATA.operators.indexOf(old)!==-1 ? old : '__all';
+  sel.disabled=false;
+  sel.removeAttribute('title');
 }
 function refreshDataAge(){
   var el=document.getElementById('data-age'); if(!el) return;
-  el.textContent=ageText('GTFS',DATA.sourceDates.gtfs)+' · '+ageText('DECO',DATA.sourceDates.deco);
+  var decoText=DATA.decoCompatible ? ageText('DECO',DATA.sourceDates.deco) : 'DECO: sin datos iguales o similares';
+  el.textContent=ageText('GTFS',DATA.sourceDates.gtfs)+' · '+decoText;
 }
 function sortServices(a,b){
   var order = {L:1,LJ:2,V:3,S:4,D:5,F:6};
@@ -293,6 +320,7 @@ async function handleFile(file, decoFile){
   DATA.sourceNames.deco=decoFile.name||'deco';
   DATA.sourceDates.gtfs=extractDateFromName(DATA.sourceNames.gtfs);
   DATA.sourceDates.deco=extractDateFromName(DATA.sourceNames.deco);
+  updateDecoCompatibility();
   prog(5, 'Leyendo DECO...');
   try{
     await parseDECOFile(decoFile);
@@ -322,7 +350,7 @@ function buildUI(){
   var avgF=DATA.frequencies.length?Math.round(DATA.frequencies.reduce(function(a,f){return a+f.headway_secs;},0)/DATA.frequencies.length/60):'—';
   var nA=Object.keys(DATA.agency).length;
   document.getElementById('stats-row').innerHTML=[
-    ['Rutas',nR],['Viajes',nT.toLocaleString()],['Paradas',nS.toLocaleString()],['Operadores',DATA.operators.length],['Agencias',nA],['Niveles',Object.keys(DATA.levels).length],['Conexiones',DATA.pathways.length.toLocaleString()],['Frec. prom.',avgF==='—'?'—':avgF+' min']
+    ['Rutas',nR],['Viajes',nT.toLocaleString()],['Paradas',nS.toLocaleString()],['Operadores',DATA.decoCompatible?DATA.operators.length:'—'],['Agencias',nA],['Niveles',Object.keys(DATA.levels).length],['Conexiones',DATA.pathways.length.toLocaleString()],['Frec. prom.',avgF==='—'?'—':avgF+' min']
   ].map(function(x){return '<div class="stat-card"><div class="lbl">'+x[0]+'</div><div class="val">'+x[1]+'</div></div>';}).join('');
 
   var selR=document.getElementById('sel-route');
@@ -1369,7 +1397,7 @@ async function compareSelectedGTFS(){
 }
 
 
-/* v1.2.1.1 fixed — simulación GTFS y salidas por recorrido */
+/* v1.2.1.2 — simulación GTFS y salidas por recorrido */
 function setupSimulationSelectors(){
   fillOperatorSelect('sim-operator');
   var simR=document.getElementById('sim-route');
