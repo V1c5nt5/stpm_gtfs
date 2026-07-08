@@ -176,3 +176,103 @@ tbody tr:hover{background:#fafafa}
 
 /* Los filtros DECO incompatibles permanecen visibles, pero no operables. */
 select:disabled{cursor:not-allowed;background:#f3f3f3;color:#777;opacity:1}
+
+
+/* v1.2.2 — renovación visual y componentes de comparación mensual */
+:root{
+  --bg:#eef2f7;
+  --card:#ffffff;
+  --border:rgba(15,23,42,.08);
+  --text:#0f172a;
+  --muted:#64748b;
+  --radius:16px;
+  --rsm:12px;
+  --shadow:0 10px 30px rgba(15,23,42,.08);
+}
+html{scroll-behavior:smooth}
+body{
+  background:
+    radial-gradient(circle at top left, rgba(175,43,30,.07), transparent 24%),
+    radial-gradient(circle at top right, rgba(37,99,235,.06), transparent 18%),
+    linear-gradient(180deg, #f7fafc 0%, var(--bg) 100%);
+  color:var(--text);
+  line-height:1.5;
+}
+header{
+  backdrop-filter:blur(14px);
+  box-shadow:0 1px 0 rgba(255,255,255,.08) inset, 0 12px 30px rgba(15,23,42,.12);
+}
+#app{
+  max-width:1360px;
+}
+.card,.upload-zone,.filters,.tabs,.stop-header,.hour-filter,.map-legend,.stat-card{
+  box-shadow:var(--shadow);
+}
+.card,.upload-zone,.filters,.stop-header,.hour-filter,.map-legend,.stat-card{
+  border-radius:var(--radius);
+}
+.tabs{
+  padding:6px;
+  gap:6px;
+  background:rgba(255,255,255,.82);
+  backdrop-filter:blur(10px);
+}
+.tab-btn{
+  border-radius:12px;
+  border-right:none;
+}
+select,input[type=text],input[type=range],button,.btn-upload,.all-btn,.map-dir-btn{
+  transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease, color .15s ease, opacity .15s ease;
+}
+button:hover,.btn-upload:hover,.all-btn:hover,.map-dir-btn:hover,.tab-btn:hover{
+  transform:translateY(-1px);
+}
+select:focus,input:focus{
+  box-shadow:0 0 0 3px rgba(175,43,30,.12);
+}
+.site-version{
+  display:block;
+  text-align:center;
+  padding:18px 16px 30px;
+  color:var(--muted);
+  font-size:12px;
+}
+.compare-mode-bar{
+  display:grid;
+  grid-template-columns:minmax(220px,280px) 1fr;
+  gap:12px;
+  align-items:end;
+  margin-bottom:14px;
+}
+.compare-mode-field{min-width:0}
+.compare-mode-note{
+  padding:12px 14px;
+  border:1px solid var(--border);
+  border-radius:var(--rsm);
+  background:#f8fafc;
+  color:var(--muted);
+  font-size:13px;
+}
+.compare-file-controls,.compare-month-controls{
+  margin-bottom:12px;
+}
+.compare-action-row{
+  display:flex;
+  justify-content:flex-end;
+  margin-top:10px;
+}
+.compare-analysis-note{
+  padding:10px 12px;
+  background:#f8fafc;
+  border:1px solid var(--border);
+  border-radius:var(--rsm);
+}
+.compare-summary .stat-card{
+  background:linear-gradient(180deg, #fff, #fbfdff);
+}
+.compare-list table tr:hover{
+  background:#f8fafc;
+}
+@media(max-width:900px){
+  .compare-mode-bar{grid-template-columns:1fr}
+}

@@ -1829,3 +1829,149 @@ function switchTab(tab){
   if(tab==='simulacion') setTimeout(function(){ initSimulationMap(); syncSimulationFromRoute(); simMap.invalidateSize(); renderSimulation(); },70);
 }
 
+
+
+/* v1.2.2 — comparación mensual y UI técnica */
+function compareMonthKeyFromDate(dt){
+  if(!dt) return '';
+  return String(dt.getFullYear()) + '-' + String(dt.getMonth() + 1).padStart(2, '0');
+}
+function compareMonthLabel(monthKey, item){
+  var parts = String(monthKey || '').split('-');
+  if(parts.length !== 2) return String(monthKey || '');
+  var dt = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+  var label = formatDatasetDate(dt).replace(/^\d+\s+de\s+/,'');
+  var fileName = item && item.file ? item.file.name : '';
+  return fileName ? (label + ' · ' + fileName) : label;
+}
+function compareMonthIndex(files){
+  var out = {};
+  datedFiles(files).forEach(function(item){
+    var key = compareMonthKeyFromDate(item.date);
+    if(!key) return;
+    if(!out[key] || item.date > out[key].date || (item.date.getTime() === out[key].date.getTime() && String(item.file.name).localeCompare(String(out[key].file.name), undefined, {numeric:true}) > 0)){
+      out[key] = item;
+    }
+  });
+  return out;
+}
+function compareMonthKeys(files){
+  return Object.keys(compareMonthIndex(files)).sort();
+}
+function fillMonthlyCompareSelects(){
+  var baseSel = document.getElementById('compare-month-base-select');
+  var targetSel = document.getElementById('compare-month-target-select');
+  if(!baseSel || !targetSel) return;
+  var index = compareMonthIndex(GITHUB_GTFS_FILES || []);
+  var months = Object.keys(index).sort();
+  function fill(sel, preferred){
+    var old = sel.value || preferred || '';
+    sel.innerHTML = '';
+    if(!months.length){
+      var opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Sin meses disponibles';
+      sel.appendChild(opt);
+      return;
+    }
+    months.forEach(function(monthKey, i){
+      var item = index[monthKey];
+      var o = document.createElement('option');
+      o.value = monthKey;
+      o.textContent = compareMonthLabel(monthKey, item);
+      o.dataset.fileName = item && item.file ? item.file.name : '';
+      o.dataset.downloadUrl = item && item.file ? item.file.download_url : '';
+      sel.appendChild(o);
+      if(i === 0 && !old) o.selected = true;
+    });
+    if(months.indexOf(old) !== -1) sel.value = old;
+    else if(months.length) sel.value = preferred && months.indexOf(preferred) !== -1 ? preferred : months[0];
+  }
+  fill(baseSel, months[0]);
+  fill(targetSel, months.length > 1 ? months[months.length - 1] : months[0]);
+}
+function syncCompareModeUI(){
+  var modeSel = document.getElementById('compare-mode-select');
+  var fileWrap = document.getElementById('compare-file-controls');
+  var monthWrap = document.getElementById('compare-month-controls');
+  var mode = modeSel ? modeSel.value : 'file';
+  if(fileWrap) fileWrap.style.display = mode === 'month' ? 'none' : '';
+  if(monthWrap) monthWrap.style.display = mode === 'month' ? '' : 'none';
+}
+function compareResolvedSelection(mode){
+  var index = compareMonthIndex(GITHUB_GTFS_FILES || []);
+  if(mode === 'month'){
+    var baseMonthSel = document.getElementById('compare-month-base-select');
+    var targetMonthSel = document.getElementById('compare-month-target-select');
+    var baseMonth = baseMonthSel ? baseMonthSel.value : '';
+    var targetMonth = targetMonthSel ? targetMonthSel.value : '';
+    var baseItem = index[baseMonth];
+    var targetItem = index[targetMonth];
+    return {
+      mode: 'month',
+      baseUrl: baseItem && baseItem.file ? baseItem.file.download_url : '',
+      baseName: baseItem && baseItem.file ? baseItem.file.name : '',
+      targetUrl: targetItem && targetItem.file ? targetItem.file.download_url : '',
+      targetName: targetItem && targetItem.file ? targetItem.file.name : '',
+      baseMonth: baseMonth,
+      targetMonth: targetMonth,
+      baseLabel: compareMonthLabel(baseMonth, baseItem),
+      targetLabel: compareMonthLabel(targetMonth, targetItem)
+    };
+  }
+  var baseSel = document.getElementById('compare-base-select');
+  var targetSel = document.getElementById('compare-target-select');
+  return {
+    mode: 'file',
+    baseUrl: baseSel ? baseSel.value : '',
+    targetUrl: targetSel ? targetSel.value : '',
+    baseName: baseSel && baseSel.selectedIndex >= 0 ? (baseSel.options[baseSel.selectedIndex].dataset.name || baseSel.options[baseSel.selectedIndex].textContent) : '',
+    targetName: targetSel && targetSel.selectedIndex >= 0 ? (targetSel.options[targetSel.selectedIndex].dataset.name || targetSel.options[targetSel.selectedIndex].textContent) : ''
+  };
+}
+var __baseFillGitHubSelects = typeof fillGitHubSelects === 'function' ? fillGitHubSelects : null;
+fillGitHubSelects = function(){
+  if(__baseFillGitHubSelects) __baseFillGitHubSelects();
+  fillMonthlyCompareSelects();
+  syncCompareModeUI();
+};
+var __baseCompareSelectedGTFS = typeof compareSelectedGTFS === 'function' ? compareSelectedGTFS : null;
+compareSelectedGTFS = async function(){
+  var modeSel = document.getElementById('compare-mode-select');
+  var mode = modeSel ? modeSel.value : 'file';
+  var sel = compareResolvedSelection(mode);
+  if(mode === 'month'){
+    if(!sel.baseUrl || !sel.targetUrl){ alert('Selecciona dos meses con GTFS disponibles.'); return; }
+    if(sel.baseMonth && sel.targetMonth && sel.baseMonth === sel.targetMonth){ alert('Selecciona dos meses distintos para comparar.'); return; }
+  }else{
+    if(!sel.baseUrl || !sel.targetUrl){ alert('Selecciona dos GTFS.'); return; }
+    if(sel.baseUrl === sel.targetUrl){ alert('Selecciona dos GTFS distintos para comparar.'); return; }
+  }
+
+  var hint = document.getElementById('compare-hint');
+  var results = document.getElementById('compare-results');
+  var baseLabel = mode === 'month' ? sel.baseLabel : sel.baseName;
+  var targetLabel = mode === 'month' ? sel.targetLabel : sel.targetName;
+  if(hint){
+    hint.style.display = 'block';
+    hint.textContent = (mode === 'month' ? 'Comparando meses: ' : 'Descargando y procesando ') + baseLabel + ' contra ' + targetLabel + '...';
+  }
+  if(results) results.style.display = 'none';
+
+  try{
+    var baseFile = await fetchGTFSFileFromURL(sel.baseUrl, sel.baseName || 'base.zip');
+    var targetFile = await fetchGTFSFileFromURL(sel.targetUrl, sel.targetName || 'target.zip');
+    var oldFeed = await parseGTFSForCompare(baseFile);
+    var newFeed = await parseGTFSForCompare(targetFile);
+    var cmp = compareFeeds(oldFeed, newFeed);
+    if(hint) hint.textContent = (mode === 'month' ? 'Comparación mensual lista: ' : 'Comparación lista: ') + baseLabel + ' → ' + targetLabel + '.';
+    renderCompare(cmp, oldFeed, newFeed);
+    syncCompareModeUI();
+  }catch(err){
+    console.error(err);
+    if(hint) hint.textContent = 'No se pudo comparar. Revisa que los ZIP existan en /data y que GitHub Pages pueda descargarlos.';
+  }
+};
+document.addEventListener('DOMContentLoaded', function(){
+  syncCompareModeUI();
+});

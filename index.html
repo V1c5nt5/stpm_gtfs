@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Horarios RED — GTFS Viewer</title>
-<!-- v1.2.1.4 -->
+<!-- v1.2.2 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="assets/css/app.css?v=1.2.1.4">
+<link rel="stylesheet" href="assets/css/app.css?v=1.2.2">
 
 </head>
 <body>
@@ -286,7 +286,20 @@
   <div id="tab-comparar" style="display:none">
     <div class="card" style="margin-bottom:14px">
       <div class="card-title">Comparar GTFS</div>
-      <div class="compare-upload">
+      <div class="compare-mode-bar">
+        <div class="fg compare-mode-field">
+          <label>Modo de comparación</label>
+          <select id="compare-mode-select" onchange="syncCompareModeUI()">
+            <option value="file">Archivos específicos</option>
+            <option value="month">Mes contra mes</option>
+          </select>
+        </div>
+        <div class="compare-mode-note">
+          El modo mensual usa el GTFS más reciente disponible dentro de cada mes. Así evitas elegir a mano el archivo “correcto”, que siempre es una forma elegante de perder tiempo.
+        </div>
+      </div>
+
+      <div class="compare-upload compare-file-controls" id="compare-file-controls">
         <div class="fg" style="min-width:230px;flex:1">
           <label>GTFS inicial / base</label>
           <select id="compare-base-select"><option value="">Buscando archivos...</option></select>
@@ -295,9 +308,23 @@
           <label>GTFS a comparar</label>
           <select id="compare-target-select"><option value="">Buscando archivos...</option></select>
         </div>
-        <button class="btn-upload" type="button" onclick="compareSelectedGTFS()" style="margin-top:0">Comparar seleccionados</button>
       </div>
-      <div id="compare-hint" class="hint" style="padding:16px;text-align:left">Selecciona dos GTFS para comparar cambios.</div>
+
+      <div class="compare-upload compare-month-controls" id="compare-month-controls" style="display:none">
+        <div class="fg" style="min-width:230px;flex:1">
+          <label>Mes base</label>
+          <select id="compare-month-base-select"><option value="">Buscando meses...</option></select>
+        </div>
+        <div class="fg" style="min-width:230px;flex:1">
+          <label>Mes a comparar</label>
+          <select id="compare-month-target-select"><option value="">Buscando meses...</option></select>
+        </div>
+      </div>
+
+      <div class="compare-action-row">
+        <button class="btn-upload" type="button" onclick="compareSelectedGTFS()" style="margin-top:0">Comparar</button>
+      </div>
+      <div id="compare-hint" class="hint" style="padding:16px;text-align:left">Selecciona dos GTFS para comparar cambios o cambia a modo mensual para comparar meses completos.</div>
     </div>
     <div id="compare-results" style="display:none">
       <div class="compare-summary" id="compare-summary"></div>
@@ -344,8 +371,8 @@
   </div>
 </div>
 
-<footer class="site-version" aria-label="Versión de la aplicación">Versión v1.2.1.4</footer>
+<footer class="site-version" aria-label="Versión de la aplicación">Versión v1.2.2</footer>
 
-<script src="assets/js/app.js?v=1.2.1.4"></script>
+<script src="assets/js/app.js?v=1.2.2"></script>
 </body>
 </html>
