@@ -1,0 +1,11 @@
+{
+  "_ayuda": "servicio = CODIGO_USUARIO del servicio apoyado. apoyan[].codigo = codigo del bus que apoya (T1590 o T1590 00I). sentido = Ida o Regreso (obligatorio). Opcionales: en (Ida/Regreso, pestaña del servicio apoyado; por defecto = sentido), operadora (ej. U15; por defecto sale del codigo: T1590 -> U15, T293 -> U2), activo:false para desactivar un servicio sin borrarlo.",
+  "apoyos": [
+    {
+      "servicio": "B03",
+      "apoyan": [
+        { "codigo": "T1590 00I", "sentido": "Ida" }
+      ]
+    }
+  ]
+}
