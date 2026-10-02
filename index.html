@@ -1,378 +1,2203 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Horarios RED — GTFS Viewer</title>
-<!-- v1.2.2 -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="assets/css/app.css?v=1.2.2">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visualizador GTFS · Red Movilidad</title>
+<style>
+  *{box-sizing:border-box}
+  /* FIX #1: sin esto, display:flex/grid de las clases anula el atributo [hidden]
+     y el overlay "Cargando…" quedaba tapando toda la pantalla para siempre. */
+  [hidden]{display:none !important}
 
+  html,body{height:100%;margin:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:#f5f5f7;color:#1a1a1c;font-size:14px;
+    -webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+
+  /* ---------- Header ---------- */
+  header{
+    display:flex;align-items:center;gap:16px;
+    padding:0 20px;height:54px;flex-shrink:0;
+    background:#fff;border-bottom:1px solid #e3e3e6;
+  }
+  .brand{display:flex;align-items:center;gap:9px}
+  .brand-dot{width:10px;height:10px;border-radius:3px;background:#d81e05}
+  header h1{font-size:14.5px;font-weight:600;margin:0;letter-spacing:-.01em}
+  header .spacer{flex:1}
+  #file-name{font-size:12px;color:#86868b;max-width:560px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .file-btn{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:7px 13px;border:1px solid #d6d6db;background:#fff;
+    border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;color:#1a1a1c;
+    font-family:inherit;transition:background .12s;
+  }
+  .file-btn:hover{background:#f2f2f4}
+  .file-btn.primary{background:#1a1a1c;color:#fff;border-color:#1a1a1c}
+  .file-btn.primary:hover{background:#333}
+  #file-input{display:none}
+
+  /* ---------- Bienvenida ---------- */
+  .welcome{flex:1;display:flex;align-items:center;justify-content:center;padding:24px}
+  .welcome-box{
+    width:100%;max-width:460px;text-align:center;padding:44px 28px;
+    background:#fff;border:1.5px dashed #d6d6db;border-radius:14px;
+    transition:border-color .15s,background .15s;
+  }
+  .welcome-box.drag{border-color:#d81e05;background:#fff8f7}
+  .welcome-icon{font-size:30px;margin-bottom:10px;opacity:.75}
+  .welcome-box h2{font-size:16px;margin:0 0 6px;font-weight:600}
+  .welcome-box p{font-size:12.5px;color:#86868b;margin:0 0 20px;line-height:1.5}
+
+  /* ---------- Layout ---------- */
+  .layout{flex:1;display:flex;min-height:0}
+
+  /* ---------- Sidebar ---------- */
+  .sidebar{
+    width:340px;flex-shrink:0;background:#fff;
+    border-right:1px solid #e3e3e6;display:flex;flex-direction:column;min-height:0;
+  }
+  .search-wrap{padding:12px;border-bottom:1px solid #e3e3e6}
+  #search{
+    width:100%;padding:9px 12px;border:1px solid #d6d6db;border-radius:8px;
+    font-size:13.5px;font-family:inherit;outline:none;background:#fafafb;color:inherit;
+  }
+  #search:focus{border-color:#9a9aa0;background:#fff}
+  .count{font-size:11px;color:#9a9aa0;margin-top:7px}
+  .results{flex:1;overflow-y:auto;padding:8px}
+  .results::-webkit-scrollbar{width:9px}
+  .results::-webkit-scrollbar-thumb{background:#d6d6db;border-radius:5px;border:2px solid #fff}
+
+  .route-item{
+    display:flex;align-items:center;gap:11px;width:100%;
+    padding:8px 10px;border:none;background:transparent;border-radius:8px;
+    cursor:pointer;text-align:left;font-family:inherit;font-size:13px;
+    color:inherit;transition:background .1s;
+  }
+  .route-item:hover{background:#f2f2f4}
+  .route-item.active{background:#ececef}
+
+  .route-badge{
+    flex-shrink:0;min-width:56px;padding:6px 8px;border-radius:6px;
+    font-weight:700;font-size:13px;text-align:center;
+    letter-spacing:.01em;line-height:1.15;word-break:break-word;
+  }
+  .route-text{min-width:0;flex:1;display:block}
+  /* FIX: eran <span> inline, por lo que el text-overflow:ellipsis no funcionaba */
+  .route-dest{
+    display:block;
+    font-size:13px;font-weight:500;color:#1a1a1c;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .route-sub{
+    display:block;
+    font-size:11.5px;color:#86868b;margin-top:2px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .group-sep{
+    display:flex;align-items:center;gap:8px;margin:14px 4px 6px;
+    font-size:10.5px;font-weight:700;letter-spacing:.07em;color:#9a9aa0;
+    text-transform:uppercase;
+  }
+  .group-sep::after{content:"";flex:1;height:1px;background:#e3e3e6}
+  .group-sep:first-child{margin-top:4px}
+  .sub-sep{
+    display:flex;align-items:baseline;gap:7px;margin:12px 4px 4px 6px;padding-left:8px;
+    border-left:3px solid #d81e05;font-size:11.5px;font-weight:700;color:#3a3a40;
+  }
+  .sub-sep .n{font-weight:500;color:#9a9aa0;font-size:11px}
+  .route-item.inj{cursor:default;user-select:none}
+  .route-item.inj:hover{background:transparent}
+  .route-item.inj .route-dest{color:#8a8a90;font-style:italic}
+  .empty-list{padding:36px 16px;text-align:center;color:#a0a0a6;font-size:13px}
+
+  /* ---------- Detalle ---------- */
+  .detail{
+    flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;
+    overflow:hidden;background:#f5f5f7;position:relative;
+  }
+  .empty{
+    display:flex;align-items:center;justify-content:center;
+    height:100%;color:#a0a0a6;font-size:13.5px;padding:24px;text-align:center;
+  }
+  .detail-inner{flex:1;display:flex;flex-direction:column;min-height:0}
+
+  .detail-head{
+    padding:14px 20px;background:#fff;border-bottom:1px solid #e3e3e6;
+    display:flex;gap:14px;align-items:center;flex-shrink:0;
+  }
+  .route-badge.lg{font-size:16px;padding:9px 13px;min-width:66px;border-radius:7px}
+  .detail-title{font-size:14.5px;font-weight:600;line-height:1.3}
+  .detail-sub{font-size:12px;color:#86868b;margin-top:2px}
+
+  .map-wrap{height:330px;flex-shrink:0;position:relative;background:#e8e8ea}
+  #map{position:absolute;inset:0}
+  .map-msg{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:#86868b;font-size:13px;padding:20px;text-align:center;z-index:500;
+  }
+  .leaflet-container{font-family:inherit}
+  /* Rectángulo con la PPU sobre cada bus en tiempo real */
+  .bus-tip{
+    font-weight:700;font-size:11px;letter-spacing:.02em;padding:2px 6px;border-radius:3px;
+    background:#1a1a1c;color:#fff;border:1px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.35);
+  }
+  .bus-tip.leaflet-tooltip-top:before{border-top-color:#1a1a1c}
+  .group-sep.cont{color:#a37c00}
+
+  .detail-body{flex:1;overflow-y:auto;padding:16px 20px 48px}
+  .detail-body::-webkit-scrollbar{width:10px}
+  .detail-body::-webkit-scrollbar-thumb{background:#d0d0d5;border-radius:5px;border:3px solid #f5f5f7}
+
+  .tabs{display:flex;gap:6px;margin-bottom:14px}
+  .tab{
+    padding:7px 15px;border:1px solid #d6d6db;background:#fff;border-radius:7px;
+    font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;color:#6b6b72;
+    transition:all .12s;
+  }
+  .tab:hover{background:#f5f5f7}
+  .tab.active{background:#1a1a1c;color:#fff;border-color:#1a1a1c}
+
+  .variants{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+  .variant{
+    padding:6px 13px;border:1px solid #e3c200;background:#ffe45c;border-radius:20px;
+    font-size:12px;cursor:pointer;font-family:inherit;color:#3a3000;font-weight:500;
+    transition:all .12s;
+  }
+  .variant:hover{background:#ffd92e}
+  .variant.active{background:#ffd000;border-color:#1a1a1c;color:#1a1a1c;font-weight:700;box-shadow:0 0 0 1px #1a1a1c inset}
+  .variant .now{font-size:10px;font-weight:600;margin-left:4px;color:#1d6b2f}
+  .variant-note{font-size:12px;color:#86868b;margin-bottom:14px;min-height:0}
+  .variant-note:empty{display:none}
+  .variants:empty{display:none}
+
+  .meta{
+    display:flex;flex-wrap:wrap;gap:22px;padding:14px 16px;background:#fff;
+    border:1px solid #e3e3e6;border-radius:10px;margin-bottom:18px;
+  }
+  .meta-block{display:flex;flex-direction:column;gap:5px}
+  .meta-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:#9a9aa0;font-weight:600}
+  .meta-value{font-size:14px;font-weight:500;font-variant-numeric:tabular-nums}
+  .days{display:flex;gap:4px}
+  .day{
+    width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;
+    font-size:11px;font-weight:600;background:#ececef;color:#b0b0b6;
+  }
+  .day.on{background:#1a1a1c;color:#fff}
+
+  .stops-head{
+    font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+    color:#9a9aa0;font-weight:600;margin-bottom:10px;
+  }
+  .stops{background:#fff;border:1px solid #e3e3e6;border-radius:10px;overflow:hidden}
+  .stop-row{
+    display:flex;align-items:center;gap:11px;padding:9px 14px;
+    border-bottom:1px solid #f0f0f2;cursor:pointer;transition:background .1s;
+  }
+  .stop-row:last-child{border-bottom:none}
+  .stop-row:hover{background:#fafafb}
+  .stop-rail{position:relative;width:12px;flex-shrink:0;align-self:stretch;display:flex;align-items:center;justify-content:center}
+  .stop-rail::before{
+    content:"";position:absolute;top:0;bottom:0;width:2px;background:#e3e3e6;
+  }
+  .stop-row:first-child .stop-rail::before{top:50%}
+  .stop-row:last-child .stop-rail::before{bottom:50%}
+  .stop-dot{
+    position:relative;width:8px;height:8px;border-radius:50%;
+    background:#fff;border:2px solid #b0b0b6;z-index:1;
+  }
+  .stop-row:first-child .stop-dot,.stop-row:last-child .stop-dot{
+    width:10px;height:10px;border-color:#1a1a1c;
+  }
+  .stop-idx{
+    font-size:11px;color:#a0a0a6;width:22px;flex-shrink:0;
+    text-align:right;font-variant-numeric:tabular-nums;
+  }
+  .stop-name{flex:1;font-size:13px;color:#2a2a2e;line-height:1.35}
+
+  .welcome-box .file-btn{margin:0 4px}
+  #welcome-msg{word-break:break-word}
+
+  /* Horarios por tipo de día (a la derecha de "Días de operación") */
+  .meta-sep{width:1px;background:#e3e3e6;align-self:stretch}
+  .sched-lines{display:flex;flex-direction:column;gap:3px}
+  .sched-line{font-size:13.5px;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .sched-24{font-size:10.5px;font-weight:700;color:#1d6b2f;letter-spacing:.04em;text-transform:uppercase}
+  .sched-none{font-size:13px;color:#a0a0a6}
+
+  /* ---------- Overlay ---------- */
+  .overlay{
+    position:fixed;inset:0;background:rgba(255,255,255,.9);z-index:9999;
+    display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);
+  }
+  .overlay-box{display:flex;flex-direction:column;align-items:center;gap:14px}
+  .spinner{
+    width:28px;height:28px;border:2.5px solid #e3e3e6;border-top-color:#d81e05;
+    border-radius:50%;animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #overlay-text{font-size:13px;color:#6b6b72;text-align:center;max-width:320px}
+
+  @media (max-width:820px){
+    .layout{flex-direction:column}
+    .sidebar{width:100%;border-right:none;border-bottom:1px solid #e3e3e6;max-height:42vh}
+    .map-wrap{height:240px}
+    #file-name{display:none}
+  }
+</style>
 </head>
 <body>
 
 <header>
-  <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-    <rect width="26" height="26" rx="6" fill="rgba(255,255,255,0.2)"/>
-    <path d="M5 19l4-11h8l4 11" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M7 14h12" stroke="white" stroke-width="2" stroke-linecap="round"/>
-  </svg>
-  <h1>GTFS Viewer — RED Movilidad</h1>
-  <button id="btn-reload" style="display:none" onclick="location.reload()">Cargar otro GTFS</button>
+  <div class="brand">
+    <span class="brand-dot"></span>
+    <h1>Visualizador GTFS · Red Movilidad</h1>
+  </div>
+  <div class="spacer"></div>
+  <span id="file-name"></span>
 </header>
 
-<div id="upload-section">
-  <div class="upload-zone" id="dropzone">
-    <div class="upload-icon">&#128230;</div>
-    <h2>Carga de datos</h2>
-    <p>Selecciona una fecha para cargar los datos disponibles.</p>
-
-    <div class="github-loader">
-      <div class="fg start-date-field">
-        <label for="dataset-date-select">Fecha de los datos</label>
-        <select id="dataset-date-select" onchange="updateStartDatasetAvailability()">
-          <option value="">Buscando fechas disponibles...</option>
-        </select>
-      </div>
-
-      <div class="dataset-availability" id="dataset-availability" aria-live="polite">
-        <div class="availability-empty">Selecciona una fecha para revisar los datos disponibles.</div>
-      </div>
-
-      <div class="dataset-link-note" id="dataset-link-note">
-        DECO y parámetros se vinculan al GTFS con una diferencia máxima de 6 días.
-      </div>
-
-      <button class="btn-upload" id="btn-load-dataset" type="button" onclick="loadSelectedMainGTFS()" disabled>Cargar datos disponibles</button>
-    </div>
-    <div class="operator-note">Los archivos se cargan exclusivamente desde GitHub/data.</div>
-    <div class="progress-bar" id="prog-bar" style="display:none"><div class="progress-fill" id="prog-fill"></div></div>
-    <div class="progress-label" id="prog-label"></div>
+<!-- Solo se muestra si la carga automática falla -->
+<div class="welcome" id="welcome" hidden>
+  <div class="welcome-box" id="dropzone">
+    <div class="welcome-icon">⚠️</div>
+    <h2>No se pudo cargar el GTFS automáticamente</h2>
+    <p id="welcome-msg"></p>
+    <button class="file-btn primary" id="retry-btn" type="button">Reintentar</button>
+    <label class="file-btn" for="file-input">Seleccionar .zip manualmente</label>
+    <input type="file" id="file-input" accept=".zip,application/zip,application/x-zip-compressed">
   </div>
 </div>
 
-<div id="app">
-  <div class="tabs">
-    <button class="tab-btn active" data-tab="ruta" onclick="switchTab('ruta')">Por Ruta</button>
-    <button class="tab-btn" data-tab="paradero" onclick="switchTab('paradero')">Por Paradero</button>
-    <button class="tab-btn" data-tab="parametros" onclick="switchTab('parametros')">Parámetros</button>
-    <button class="tab-btn" data-tab="simulacion" onclick="switchTab('simulacion')">Ver Simulación GTFS</button>
-    <button class="tab-btn" data-tab="comparar" onclick="switchTab('comparar')">Comparar GTFS</button>
-  </div>
-  <div class="data-age" id="data-age"></div>
+<div class="layout" id="layout" hidden>
+  <aside class="sidebar">
+    <div class="search-wrap">
+      <input type="text" id="search" placeholder="Buscar recorrido o destino…" autocomplete="off" spellcheck="false">
+      <div class="count" id="count"></div>
+    </div>
+    <div class="results" id="results"></div>
+  </aside>
 
-  <!-- TAB RUTA -->
-  <div id="tab-ruta">
-    <div class="stats-row" id="stats-row"></div>
-    <div class="filters">
-      <div class="fg" style="min-width:190px">
-        <label>Operador</label>
-        <select id="sel-operator"></select>
+  <main class="detail">
+    <div class="empty" id="detail-empty">Selecciona un recorrido de la lista</div>
+
+    <div class="detail-inner" id="detail-inner" hidden>
+      <div class="detail-head">
+        <div class="route-badge lg" id="detail-badge">--</div>
+        <div style="min-width:0">
+          <div class="detail-title" id="detail-title"></div>
+          <div class="detail-sub" id="detail-sub"></div>
+        </div>
       </div>
-      <div class="fg" style="min-width:260px;flex:1">
-        <label>Ruta</label>
-        <select id="sel-route"></select>
+      <div class="map-wrap">
+        <div id="map"></div>
+        <div class="map-msg" id="map-msg" hidden></div>
       </div>
-      <div class="fg">
-        <label>Tipo de día</label>
-        <select id="sel-service"></select>
+      <div class="detail-body">
+        <div class="tabs" id="tabs" hidden></div>
+        <div class="variants" id="variants"></div>
+        <div class="variant-note" id="variant-note"></div>
+        <div class="meta" id="meta"></div>
+        <div class="stops-head" id="stops-head"></div>
+        <div class="stops" id="stops"></div>
       </div>
     </div>
+  </main>
+</div>
 
-    <!-- MAPA -->
-    <div class="card" style="margin-bottom:14px;padding:14px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-        <div class="card-title" style="margin-bottom:0">Recorrido</div>
-        <div class="map-dir-tabs">
-          <button class="map-dir-btn active" id="map-btn-0" onclick="setMapDir(0)">Ida</button>
-          <button class="map-dir-btn" id="map-btn-1" onclick="setMapDir(1)">Regreso</button>
-          <button class="map-dir-btn" id="map-btn-both" onclick="setMapDir(-1)">Ambas</button>
-        </div>
-      </div>
-      <div class="map-legend">
-        <div class="legend-item"><div class="legend-line" style="background:#2563eb"></div><span>Ida</span></div>
-        <div class="legend-item"><div class="legend-line" style="background:#dc2626"></div><span>Regreso</span></div>
-        <div class="legend-item"><div class="legend-dot" style="background:#1d4ed8"></div><span>Parada</span></div>
-        <div class="legend-item"><div class="legend-dot" style="background:#16a34a"></div><span>Inicio</span></div>
-        <div class="legend-item"><div class="legend-dot" style="background:#dc2626"></div><span>Fin</span></div>
-        <span id="map-stop-count" style="margin-left:auto;color:var(--muted);font-size:12px"></span>
-      </div>
-      <div id="map"></div>
-    </div>
-
-    <!-- FRECUENCIAS -->
-    <div class="grid2">
-      <div class="card">
-        <div class="card-title">Franjas horarias</div>
-        <div id="freq-table-wrap"></div>
-      </div>
-      <div class="card">
-        <div class="card-title">Frecuencia por hora</div>
-        <div class="chart-wrap"><canvas id="freq-chart"></canvas></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">Todas las salidas</div>
-      <div class="route-table-toolbar">
-        <div class="map-dir-tabs">
-          <button class="map-dir-btn active" id="stops-btn-0" onclick="setStopsDir(0)">Ida</button>
-          <button class="map-dir-btn" id="stops-btn-1" onclick="setStopsDir(1)">Regreso</button>
-        </div>
-        <div class="operator-note" id="departures-summary">Salidas del sentido seleccionado.</div>
-      </div>
-      <div id="stops-table-wrap"></div>
-    </div>
-  </div>
-
-  <!-- TAB PARADERO -->
-  <div id="tab-paradero" style="display:none">
-    <div class="filters">
-      <div class="fg" style="min-width:190px">
-        <label>Operador</label>
-        <select id="sel-operator-stop"></select>
-      </div>
-      <div class="fg">
-        <label>Tipo de día</label>
-        <select id="sel-service-stop"></select>
-      </div>
-      <div class="fg" style="flex:1;min-width:220px">
-        <label>Buscar paradero</label>
-        <div class="search-wrap">
-          <span class="search-icon">&#128269;</span>
-          <input type="text" id="stop-search" placeholder="Ej: Baquedano, PD1641, Macul..." autocomplete="off">
-          <div class="suggestions" id="suggestions" style="display:none"></div>
-        </div>
-      </div>
-    </div>
-
-    <div id="stop-detail" style="display:none">
-      <div class="stop-header" id="stop-header-info"></div>
-      <div class="hour-filter">
-        <label>Filtrar por hora:</label>
-        <input type="range" id="hour-slider" min="0" max="23" value="8" step="1" oninput="onHourSlide(this.value)">
-        <div class="hour-val" id="hour-val">8:00</div>
-      </div>
-      <div class="stop-map-grid">
-        <div class="card">
-          <div class="card-title">Ubicación exacta del paradero</div>
-          <div id="stop-map"></div>
-        </div>
-        <div class="card">
-          <div class="card-title">Recorridos</div>
-          <div id="routes-at-stop-wrap"></div>
-        </div>
-      </div>
-      <div class="card" style="margin-bottom:14px">
-        <div class="card-title">Buses por hora — 24h</div>
-        <div class="chart-wrap"><canvas id="stop-chart"></canvas></div>
-      </div>
-      <div class="card">
-        <div class="card-title" id="arrivals-title">Llegadas</div>
-        <div id="arrivals-wrap"></div>
-      </div>
-    </div>
-    <div id="stop-hint" class="hint">Busca un paradero.</div>
-  </div>
-
-
-
-  <!-- TAB PARAMETROS -->
-  <div id="tab-parametros" style="display:none">
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-title">Consolidado de parámetros</div>
-      <div class="filters" style="margin-bottom:10px">
-        <div class="fg" style="min-width:250px;flex:1">
-          <label>Archivo</label>
-          <select id="param-file-select" onchange="syncParamSelects('tab')"><option value="">Buscando consolidado...</option></select>
-        </div>
-        <div class="fg" style="min-width:250px;flex:1">
-          <label>Indicador / período</label>
-          <select id="param-sheet-select"><option value="">Carga el consolidado</option></select>
-        </div>
-        <div class="param-actions">
-          <button class="btn-upload" type="button" onclick="loadSelectedParams()" style="margin-top:0">Cargar parámetros</button>
-          <button class="btn-upload secondary-btn" type="button" onclick="syncParamRouteFromGTFS()" style="margin-top:0">Usar ruta GTFS</button>
-        </div>
-      </div>
-      <div class="param-status" id="param-status">Carga el consolidado desde GitHub/data.</div>
-    </div>
-
-    <div id="param-panel" style="display:none">
-      <div class="filters">
-        <div class="fg" style="min-width:170px">
-          <label>Unidad de negocio</label>
-          <select id="param-operator"></select>
-        </div>
-        <div class="fg" style="min-width:170px">
-          <label>Sentido</label>
-          <select id="param-sentido"></select>
-        </div>
-        <div class="fg" style="min-width:150px">
-          <label>Tipo</label>
-          <select id="param-tipo"></select>
-        </div>
-        <div class="fg" style="flex:1;min-width:220px">
-          <label>Buscar servicio</label>
-          <input type="text" id="param-route-search" placeholder="Código usuario o TS, ej: 101, B01..." autocomplete="off">
-        </div>
-      </div>
-      <div class="param-summary" id="param-summary"></div>
-      <div class="card">
-        <div class="card-title" id="param-table-title">Detalle</div>
-        <div class="param-sheet-note" id="param-sheet-note"></div>
-        <div id="param-table-wrap"></div>
-      </div>
-    </div>
-  </div>
-
-
-  <!-- TAB SIMULACION GTFS -->
-  <div id="tab-simulacion" style="display:none">
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-title">Ver simulación GTFS</div>
-      <div class="filters" style="margin-bottom:12px">
-        <div class="fg" style="min-width:190px">
-          <label>Operador</label>
-          <select id="sim-operator"></select>
-        </div>
-        <div class="fg" style="min-width:250px;flex:1">
-          <label>Recorrido</label>
-          <select id="sim-route"></select>
-        </div>
-        <div class="fg">
-          <label>Tipo de día</label>
-          <select id="sim-service"></select>
-        </div>
-        <div class="fg">
-          <label>Sentido</label>
-          <select id="sim-dir">
-            <option value="-1">Ida y regreso</option>
-            <option value="0">Ida</option>
-            <option value="1">Regreso</option>
-          </select>
-        </div>
-      </div>
-      <div class="hour-filter">
-        <label>Hora de simulación:</label>
-        <input type="range" id="sim-time-slider" min="0" max="1439" value="480" step="1" oninput="onSimTimeSlide(this.value)">
-        <div class="hour-val" id="sim-time-label">08:00</div>
-        <button class="all-btn" type="button" onclick="stepSimTime(-10)">−10 min</button>
-        <button class="all-btn" type="button" onclick="stepSimTime(10)">+10 min</button>
-        <button class="all-btn" id="sim-auto-btn" type="button" onclick="toggleSimAuto()" aria-pressed="false">▶ Avance automático</button>
-        <span class="sim-auto-note">+10 min cada 2 s</span>
-      </div>
-      <div class="map-legend">
-        <div class="legend-item"><div class="legend-line" style="background:#2563eb"></div><span>Ida</span></div>
-        <div class="legend-item"><div class="legend-line" style="background:#dc2626"></div><span>Regreso</span></div>
-        <div class="legend-item"><div class="legend-dot" style="background:#AF2B1E"></div><span>Bus activo</span></div>
-        <span id="sim-count" style="margin-left:auto;color:var(--muted);font-size:12px"></span>
-      </div>
-      <div id="sim-map"></div>
-      <div class="param-sheet-note">La posición se estima interpolando el trazado GTFS según hora de salida y llegada del viaje. Es una simulación operacional, no GPS en tiempo real.</div>
-    </div>
-    <div class="card">
-      <div class="card-title">Salidas activas a la hora seleccionada</div>
-      <div id="sim-active-wrap"></div>
-    </div>
-  </div>
-
-
-  <!-- TAB COMPARAR -->
-  <div id="tab-comparar" style="display:none">
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-title">Comparar GTFS</div>
-      <div class="compare-mode-bar">
-        <div class="fg compare-mode-field">
-          <label>Modo de comparación</label>
-          <select id="compare-mode-select" onchange="syncCompareModeUI()">
-            <option value="file">Archivos específicos</option>
-            <option value="month">Mes contra mes</option>
-          </select>
-        </div>
-        <div class="compare-mode-note">
-          El modo mensual usa el GTFS más reciente disponible dentro de cada mes. Así evitas elegir a mano el archivo “correcto”, que siempre es una forma elegante de perder tiempo.
-        </div>
-      </div>
-
-      <div class="compare-upload compare-file-controls" id="compare-file-controls">
-        <div class="fg" style="min-width:230px;flex:1">
-          <label>GTFS inicial / base</label>
-          <select id="compare-base-select"><option value="">Buscando archivos...</option></select>
-        </div>
-        <div class="fg" style="min-width:230px;flex:1">
-          <label>GTFS a comparar</label>
-          <select id="compare-target-select"><option value="">Buscando archivos...</option></select>
-        </div>
-      </div>
-
-      <div class="compare-upload compare-month-controls" id="compare-month-controls" style="display:none">
-        <div class="fg" style="min-width:230px;flex:1">
-          <label>Mes base</label>
-          <select id="compare-month-base-select"><option value="">Buscando meses...</option></select>
-        </div>
-        <div class="fg" style="min-width:230px;flex:1">
-          <label>Mes a comparar</label>
-          <select id="compare-month-target-select"><option value="">Buscando meses...</option></select>
-        </div>
-      </div>
-
-      <div class="compare-action-row">
-        <button class="btn-upload" type="button" onclick="compareSelectedGTFS()" style="margin-top:0">Comparar</button>
-      </div>
-      <div id="compare-hint" class="hint" style="padding:16px;text-align:left">Selecciona dos GTFS para comparar cambios o cambia a modo mensual para comparar meses completos.</div>
-    </div>
-    <div id="compare-results" style="display:none">
-      <div class="compare-summary" id="compare-summary"></div>
-      <div class="filters compare-analysis-filters">
-        <div class="fg" style="min-width:220px;flex:1">
-          <label>Buscar recorrido modificado</label>
-          <input type="text" id="compare-route-search" placeholder="Ej: 101, B12, F10..." autocomplete="off" oninput="renderCompareAnalysis()">
-        </div>
-        <div class="fg" style="min-width:190px">
-          <label>Tipo de cambio</label>
-          <select id="compare-change-filter" onchange="renderCompareAnalysis()">
-            <option value="all">Todos los cambios</option>
-            <option value="stops">Trazado / paraderos</option>
-            <option value="frequency">Frecuencia</option>
-            <option value="trips">Viajes / oferta</option>
-            <option value="service">Días / sentidos</option>
-            <option value="metadata">Datos del recorrido</option>
-          </select>
-        </div>
-        <div class="fg" style="min-width:210px">
-          <label>Orden</label>
-          <select id="compare-sort" onchange="renderCompareAnalysis()">
-            <option value="impact">Mayor impacto estimado</option>
-            <option value="frequency">Mayor cambio de frecuencia</option>
-            <option value="trips">Mayor cambio de viajes</option>
-            <option value="route">Código de recorrido</option>
-          </select>
-        </div>
-      </div>
-      <div class="param-sheet-note compare-analysis-note" id="compare-analysis-note"></div>
-      <div class="grid2">
-        <div class="card"><div class="card-title">Recorridos creados</div><div id="routes-created-wrap" class="compare-list"></div></div>
-        <div class="card"><div class="card-title">Recorridos eliminados</div><div id="routes-deleted-wrap" class="compare-list"></div></div>
-      </div>
-      <div class="grid2">
-        <div class="card"><div class="card-title">Recorridos modificados</div><div id="routes-modified-wrap" class="compare-list"></div></div>
-        <div class="card"><div class="card-title">Recorridos con mayores cambios de frecuencia</div><div id="freq-changes-wrap" class="compare-list"></div></div>
-      </div>
-      <div class="grid2">
-        <div class="card"><div class="card-title">Paraderos nuevos · PA–PJ + 1 a 4 dígitos</div><div id="stops-created-wrap" class="compare-list"></div></div>
-        <div class="card"><div class="card-title">Paraderos eliminados · PA–PJ + 1 a 4 dígitos</div><div id="stops-deleted-wrap" class="compare-list"></div></div>
-      </div>
-    </div>
+<div class="overlay" id="overlay">
+  <div class="overlay-box">
+    <div class="spinner"></div>
+    <div id="overlay-text">Buscando el GTFS más reciente…</div>
   </div>
 </div>
 
-<footer class="site-version" aria-label="Versión de la aplicación">Versión v1.2.2</footer>
+<script>
+function loadScript(urls, check){
+  return new Promise((resolve, reject) => {
+    let i = 0;
+    const tryNext = () => {
+      if (check()) return resolve();
+      if (i >= urls.length) return reject(new Error('No se pudo cargar ' + urls[0]));
+      const s = document.createElement('script');
+      s.src = urls[i++];
+      s.onload = () => check() ? resolve() : tryNext();
+      s.onerror = tryNext;
+      document.head.appendChild(s);
+    };
+    tryNext();
+  });
+}
+function loadCSS(urls){
+  let i = 0;
+  const l = document.createElement('link');
+  l.rel = 'stylesheet';
+  l.onerror = () => { if (i < urls.length) l.href = urls[i++]; };
+  l.href = urls[i++];
+  document.head.appendChild(l);
+}
 
-<script src="assets/js/app.js?v=1.2.2"></script>
+loadCSS([
+  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'
+]);
+
+const libJSZip = loadScript([
+  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+  'https://unpkg.com/jszip@3.10.1/dist/jszip.min.js',
+  'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'
+], () => typeof JSZip !== 'undefined');
+libJSZip.catch(() => {});
+
+const libLeaflet = loadScript([
+  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js'
+], () => typeof L !== 'undefined');
+libLeaflet.catch(() => {});
+
+const $ = id => document.getElementById(id);
+const DEFAULT_COLOR = '#D81E05';
+const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+const DAY_LBL = ['L','M','M','J','V','S','D'];
+
+const nextFrame = () => new Promise(r => setTimeout(r, 0));
+const norm = s => (s == null ? '' : String(s)).toLowerCase()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+
+function escapeHtml(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function readCSV(text, label, onHeader, onRow, delim){
+  if (delim === undefined) delim = 44;
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const n = text.length;
+  let row = [], cur = '', fs = 0, inQ = false, quoted = false;
+  let header = null, count = 0;
+
+  const emit = () => {
+    if (row.length === 1 && row[0] === '') { row = []; return; }
+    if (!header){
+      header = row.map(h => h.trim());
+      onHeader(header);
+    } else {
+      onRow(row);
+      count++;
+    }
+    row = [];
+  };
+
+  for (let i = 0; i < n; i++){
+    const c = text.charCodeAt(i);
+    if (inQ){
+      if (c === 34){
+        if (text.charCodeAt(i + 1) === 34){ cur += '"'; i++; }
+        else inQ = false;
+      } else cur += text[i];
+    } else if (c === 34){
+      inQ = true; quoted = true;
+    } else if (c === delim){
+      row.push(quoted ? cur : text.slice(fs, i));
+      cur = ''; quoted = false; fs = i + 1;
+    } else if (c === 10){
+      let end = i;
+      if (end > fs && text.charCodeAt(end - 1) === 13) end--;
+      row.push(quoted ? cur : text.slice(fs, end));
+      cur = ''; quoted = false; fs = i + 1;
+      emit();
+      if (count > 0 && count % 150000 === 0){
+        showOverlay(label + ' · ' + count.toLocaleString('es') + ' filas…');
+        await nextFrame();
+      }
+    }
+  }
+  if (fs < n || row.length || cur){
+    let end = n;
+    if (end > fs && text.charCodeAt(end - 1) === 13) end--;
+    row.push(quoted ? cur : text.slice(fs, end));
+    emit();
+  }
+  return count;
+}
+
+async function readObjects(text, label, delim){
+  const out = [];
+  let H = [];
+  await readCSV(text, label, h => { H = h; }, r => {
+    const o = {};
+    for (let j = 0; j < H.length; j++) o[H[j]] = r[j] !== undefined ? r[j].trim() : '';
+    out.push(o);
+  }, delim);
+  return out;
+}
+
+function normalizeColor(c){
+  if (!c) return null;
+  c = c.toString().trim().replace('#','');
+  if (/^[0-9a-fA-F]{6}$/.test(c)) return '#' + c;
+  if (/^[0-9a-fA-F]{3}$/.test(c)) return '#' + c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+  return null;
+}
+
+function textColorFor(hex){
+  const h = (hex || '').replace('#','');
+  if (h.length !== 6) return '#fff';
+  const r = parseInt(h.slice(0,2),16),
+        g = parseInt(h.slice(2,4),16),
+        b = parseInt(h.slice(4,6),16);
+  return (0.299*r + 0.587*g + 0.114*b) > 155 ? '#111' : '#fff';
+}
+
+function toSec(t){
+  if (!t) return null;
+  const p = String(t).trim().split(':');
+  if (p.length < 2) return null;
+  const h = parseInt(p[0],10), m = parseInt(p[1],10), s = p[2] ? parseInt(p[2],10) : 0;
+  if (isNaN(h) || isNaN(m)) return null;
+  return h*3600 + m*60 + (isNaN(s) ? 0 : s);
+}
+function fmtSec(sec){
+  if (sec == null) return '';
+  let h = Math.floor(sec/3600) % 24;
+  const m = Math.floor((sec % 3600)/60);
+  return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+}
+function fmtTime(t){ return fmtSec(toSec(t)); }
+
+const state = {
+  gtfs: null,
+  routeId: null,
+  dir: null,
+  shapeId: null,
+  map: null,
+  layer: null,
+  busLayer: null,      // buses en tiempo real (capa aparte de los paraderos)
+  busColor: null,
+  showAllDirs: false,  // circular / un solo sentido: se muestran los buses de ambos sentidos
+  liveOnly: false,     // recorrido sin trazado (solo buses)
+  liveRaw: null, liveErr: false, fileLabel: '', openBus: null, redrawing: false,
+};
+
+function showOverlay(msg){ $('overlay-text').textContent = msg; $('overlay').hidden = false; }
+function hideOverlay(){ $('overlay').hidden = true; }
+
+$('file-input').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (f) loadGTFSFile(f);
+  e.target.value = '';
+});
+$('retry-btn').addEventListener('click', () => autoLoad());
+
+const dz = $('dropzone');
+let dragDepth = 0;
+document.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; dz.classList.add('drag'); });
+document.addEventListener('dragover',  e => { e.preventDefault(); });
+document.addEventListener('dragleave', e => { e.preventDefault(); if (--dragDepth <= 0){ dragDepth = 0; dz.classList.remove('drag'); } });
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  dragDepth = 0; dz.classList.remove('drag');
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) loadGTFSFile(f);
+});
+
+/* =====================================================================
+   CARGA AUTOMÁTICA DEL GTFS MÁS RECIENTE
+   Repo: github.com/V1c5nt5/stpm_gtfs  ·  carpeta /data
+   Archivos: GTFS_<AAAAMMDD>.zip  → se elige el de fecha más nueva.
+   ===================================================================== */
+const REPO = { owner: 'V1c5nt5', repo: 'stpm_gtfs', branch: 'main', dir: 'data' };
+const RAW_BASE = 'https://raw.githubusercontent.com/' + REPO.owner + '/' + REPO.repo + '/' + REPO.branch + '/' + REPO.dir + '/';
+const GTFS_NAME_RE = /^GTFS_.*\.zip$/i;
+const KNOWN_GTFS = 'GTFS_20261003.zip';   // último recurso si no se puede listar la carpeta
+const MAX_TRIES = 3;                      // cuántos GTFS (del más nuevo al más viejo) probar
+
+const gtfsKey = name => { const m = name.match(/(\d{8})/); return m ? m[1] : '00000000'; };
+
+const DECO_NAME_RE = /^DECO_VIGENTES_.*\.zip$/i;
+const KNOWN_DECO = 'DECO_VIGENTES_20260829.zip';
+// DECO_VIGENTES_<AAAAMMDD> o DECO_VIGENTES_<AAAAMMDDhhmm>: se comparan como fecha(+hora)
+const decoKey = name => { const m = name.match(/DECO_VIGENTES_(\d+)/i); return (m ? m[1] : '').padEnd(14, '0'); };
+
+function sortCandidates(names, re, keyFn){
+  return [...new Set(names)]
+    .filter(n => re.test(n))
+    .sort((a, b) => keyFn(b).localeCompare(keyFn(a)) || b.localeCompare(a))
+    .map(n => ({ name: n, url: RAW_BASE + encodeURIComponent(n) }));
+}
+const sortGTFS = names => sortCandidates(names, GTFS_NAME_RE, gtfsKey);
+const sortDECO = names => sortCandidates(names, DECO_NAME_RE, decoKey);
+
+async function fetchJSON(url){
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+// Lista los nombres de archivo de /data (API de GitHub → jsDelivr). null si ninguna funciona.
+async function listDataDir(){
+  try {
+    const list = await fetchJSON('https://api.github.com/repos/' + REPO.owner + '/' + REPO.repo +
+                                 '/contents/' + REPO.dir + '?ref=' + REPO.branch);
+    const names = list.filter(f => f.type === 'file').map(f => f.name);
+    if (names.length) return names;
+  } catch (e){ console.warn('API GitHub falló:', e); }
+  try {
+    const j = await fetchJSON('https://data.jsdelivr.com/v1/packages/gh/' + REPO.owner + '/' + REPO.repo +
+                              '@' + REPO.branch + '?structure=flat');
+    const pre = '/' + REPO.dir + '/';
+    const names = (j.files || []).map(f => f.name)
+      .filter(n => n.startsWith(pre) && n.slice(pre.length).indexOf('/') < 0)
+      .map(n => n.slice(pre.length));
+    if (names.length) return names;
+  } catch (e){ console.warn('jsDelivr falló:', e); }
+  return null;
+}
+
+// Último recurso: probar fechas hacia atrás (incluye días futuros, ya que se publican con anticipación)
+async function probeNames(prefix){
+  const pad = n => String(n).padStart(2, '0');
+  const today = new Date();
+  const found = [];
+  for (let off = -30; off < 150; off += 15){
+    const batch = [];
+    for (let i = off; i < off + 15; i++){
+      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+      const name = prefix + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '.zip';
+      batch.push(fetch(RAW_BASE + name, { method: 'HEAD' })
+        .then(r => { if (r.ok) found.push(name); }).catch(() => {}));
+    }
+    await Promise.all(batch);
+    if (found.length) break;
+  }
+  return found;
+}
+
+async function discoverAll(){
+  showOverlay('Buscando el GTFS y el DECO más recientes…');
+  const names = await listDataDir();
+  let gtfs = [], deco = [];
+  if (names){
+    gtfs = sortGTFS(names); deco = sortDECO(names);
+  } else {
+    try { gtfs = sortGTFS(await probeNames('GTFS_')); } catch (e){}
+    try { deco = sortDECO(await probeNames('DECO_VIGENTES_')); } catch (e){}
+  }
+  if (!gtfs.length) gtfs = sortGTFS([KNOWN_GTFS]);
+  if (!deco.length) deco = sortDECO([KNOWN_DECO]);
+  return { gtfs, deco };
+}
+
+async function downloadFile(c, silent){
+  if (!silent) showOverlay('Descargando ' + c.name + '…');
+  const resp = await fetch(c.url);
+  if (!resp.ok) throw new Error('HTTP ' + resp.status + ' al descargar ' + c.name);
+  const total = +resp.headers.get('content-length') || 0;
+  if (silent || !resp.body || !resp.body.getReader) return await resp.arrayBuffer();
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let got = 0;
+  for (;;){
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value); got += value.length;
+    showOverlay('Descargando ' + c.name + ' · ' +
+      (total ? Math.min(100, Math.round(got / total * 100)) + '%' : (got / 1048576).toFixed(1) + ' MB'));
+  }
+  const out = new Uint8Array(got);
+  let o = 0;
+  for (const ch of chunks){ out.set(ch, o); o += ch.length; }
+  return out.buffer;
+}
+
+/* DECO (Diccionario de Servicios): CSV separado por ';'.
+   Solo se usan CODIGO_USUARIO y CLI_DSC. Es opcional: si falla, se sigue sin subcategorías. */
+async function loadDeco(cands){
+  try { await libJSZip; } catch (e){ return null; }
+  for (const c of cands){
+    try {
+      const buf = await downloadFile(c, true);
+      const zip = await JSZip.loadAsync(buf);
+      const f = zip.file(/\.csv$/i).filter(x => !/(^|\/)__MACOSX\//.test(x.name))[0];
+      if (!f) throw new Error('El zip no contiene un .csv');
+      const txt = await f.async('string');
+      const first = txt.slice(0, Math.max(0, txt.indexOf('\n')));
+      const delim = first.split(';').length > first.split(',').length ? 59 : 44;
+      const rows = await readObjects(txt, 'DECO', delim);
+      if (!rows.length || !('CODIGO_USUARIO' in rows[0]) || !('CLI_DSC' in rows[0]))
+        throw new Error('El DECO no trae las columnas CODIGO_USUARIO y CLI_DSC');
+      return { name: c.name, rows };
+    } catch (e){ console.warn('DECO ' + c.name + ' falló:', e); }
+  }
+  return null;
+}
+
+function showLoadError(msg){
+  $('welcome-msg').textContent = msg;
+  $('welcome').hidden = false;
+  $('layout').hidden = true;
+}
+
+let loading = false;
+let decoPromise = null;
+let contPromise = null;
+async function autoLoad(){
+  if (loading) return;
+  loading = true;
+  $('welcome').hidden = true;
+  try {
+    const { gtfs, deco } = await discoverAll();
+    decoPromise = loadDeco(deco.slice(0, 2));      // se descarga en paralelo con el GTFS
+    contPromise = loadCont();                      // contingencia.json (opcional)
+    const cands = gtfs.slice(0, MAX_TRIES);
+    if (!cands.length) throw new Error('No hay archivos GTFS_*.zip en la carpeta /data del repositorio.');
+    let lastErr = null;
+    for (const c of cands){
+      try {
+        const buf = await downloadFile(c);
+        await parseGTFS(buf, c.name);
+        return;
+      } catch (e){ console.error(e); lastErr = e; }
+    }
+    throw lastErr;
+  } catch (err){
+    hideOverlay();
+    showLoadError((err && err.message) || String(err));
+  } finally {
+    loading = false;
+  }
+}
+
+// Carga manual (solo como respaldo si falla la automática)
+async function loadGTFSFile(file){
+  if (loading) return;
+  loading = true;
+  try {
+    await parseGTFS(file, file.name);
+  } catch (err){
+    hideOverlay();
+    console.error(err);
+    alert('No se pudo cargar el GTFS:\n' + err.message);
+  } finally {
+    loading = false;
+  }
+}
+
+function prettyGTFSName(name){
+  const k = gtfsKey(name);
+  return k === '00000000' ? name : name + ' · ' + k.slice(6, 8) + '-' + k.slice(4, 6) + '-' + k.slice(0, 4);
+}
+
+async function parseGTFS(data, name){
+  showOverlay('Preparando…');
+  await libJSZip.catch(() => {
+    throw new Error('No se pudo cargar la librería JSZip (¿sin conexión a internet?).');
+  });
+  await nextFrame();
+
+  showOverlay('Descomprimiendo…');
+  await nextFrame();
+  const zip = await JSZip.loadAsync(data);
+
+  const readText = async (fname) => {
+    const re = new RegExp('(^|/)' + fname.replace(/\./g,'\\.') + '$', 'i');
+    const files = zip.file(re).filter(f => !/(^|\/)__MACOSX\//.test(f.name));
+    if (!files.length) return null;
+    return await files[0].async('string');
+  };
+
+  const g = {
+    routes: [], trips: [], stops: [],
+    calendar: [], calendarDates: [], agency: [], frequencies: [],
+    stopTimesByTrip: new Map(),
+    shapesById: new Map(),
+  };
+
+  for (const [key, fname] of [
+    ['routes','routes.txt'], ['trips','trips.txt'], ['stops','stops.txt'],
+    ['calendar','calendar.txt'], ['calendarDates','calendar_dates.txt'], ['agency','agency.txt'],
+    ['frequencies','frequencies.txt']
+  ]){
+    showOverlay('Leyendo ' + fname + '…');
+    await nextFrame();
+    const txt = await readText(fname);
+    if (txt) g[key] = await readObjects(txt, fname);
+  }
+
+  if (!g.routes.length) throw new Error('No se encontró un routes.txt válido en el archivo.');
+
+  {
+    showOverlay('Leyendo stop_times.txt…');
+    await nextFrame();
+    const txt = await readText('stop_times.txt');
+    if (txt){
+      let iT = -1, iS = -1, iQ = -1, iA = -1, iD = -1;
+      await readCSV(txt, 'stop_times.txt',
+        h => { iT = h.indexOf('trip_id'); iS = h.indexOf('stop_id');
+               iQ = h.indexOf('stop_sequence'); iA = h.indexOf('arrival_time'); iD = h.indexOf('departure_time'); },
+        r => {
+          const tid = r[iT]; if (tid === undefined) return;
+          let arr = g.stopTimesByTrip.get(tid);
+          if (!arr){ arr = []; g.stopTimesByTrip.set(tid, arr); }
+          arr.push([ +r[iQ], (r[iS] || '').trim(), (r[iA] || '').trim(), (r[iD] || '').trim() ]);
+        });
+      for (const arr of g.stopTimesByTrip.values()){
+        for (let k = 1; k < arr.length; k++){
+          if (arr[k][0] < arr[k-1][0]){ arr.sort((a,b) => a[0]-b[0]); break; }
+        }
+      }
+    }
+  }
+
+  {
+    showOverlay('Leyendo shapes.txt…');
+    await nextFrame();
+    const txt = await readText('shapes.txt');
+    if (txt){
+      let iI = -1, iLa = -1, iLo = -1, iQ = -1;
+      await readCSV(txt, 'shapes.txt',
+        h => { iI = h.indexOf('shape_id'); iLa = h.indexOf('shape_pt_lat');
+               iLo = h.indexOf('shape_pt_lon'); iQ = h.indexOf('shape_pt_sequence'); },
+        r => {
+          const sid = r[iI]; if (sid === undefined) return;
+          let arr = g.shapesById.get(sid);
+          if (!arr){ arr = []; g.shapesById.set(sid, arr); }
+          arr.push([ +r[iQ], +r[iLa], +r[iLo] ]);
+        });
+      for (const arr of g.shapesById.values()){
+        for (let k = 1; k < arr.length; k++){
+          if (arr[k][0] < arr[k-1][0]){ arr.sort((a,b) => a[0]-b[0]); break; }
+        }
+      }
+    }
+  }
+
+  showOverlay('Cruzando con el DECO…');
+  g.deco = decoPromise ? await decoPromise : null;
+  { const c = contPromise ? await contPromise : null; g.contCfg = c ? c.cfg : null; contSig = c ? c.sig : null; }
+  showOverlay('Indexando datos…');
+  await nextFrame();
+  buildIndexes(g);
+  applyCont(g, g.contCfg);
+
+  state.gtfs = g;
+  state.routeId = null; state.dir = null; state.shapeId = null;
+  state.entryKey = null; state.label = null; state.sub = null;
+  if (state.busLayer) state.busLayer.clearLayers();
+
+  $('welcome').hidden = true;
+  $('layout').hidden = false;
+  $('detail-empty').hidden = false;
+  $('detail-inner').hidden = true;
+  $('search').value = '';
+  const dk = g.deco ? decoKey(g.deco.name) : '';
+  const decoTxt = g.deco ? 'DECO ' + dk.slice(6, 8) + '-' + dk.slice(4, 6) + '-' + dk.slice(0, 4) : 'sin DECO';
+  state.fileLabel = prettyGTFSName(name) + ' · ' + decoTxt;
+  renderFileLabel();
+  $('file-name').title = name + (g.deco ? ' + ' + g.deco.name : ' (DECO no disponible)');
+
+  renderResults('');
+  hideOverlay();
+  startLive();
+}
+
+const OTHER_GROUP = 'Otros recorridos';
+
+// Orden de las agencias en la lista (las que no coincidan van después, alfabéticamente)
+function groupRank(name){
+  const n = norm(name);
+  if (name === OTHER_GROUP) return 99;
+  if (/metro de santiago/.test(n)) return 0;
+  if (/\befe\b|trenes de chile|metrotren/.test(n)) return 1;
+  if (/acercamiento|aeropuerto/.test(n)) return 2;
+  if (/red metropolitana/.test(n)) return 3;
+  return 10;
+}
+
+function buildIndexes(g){
+  g.routesById   = new Map(g.routes.map(r => [r.route_id, r]));
+  g.stopsById    = new Map(g.stops.map(s => [s.stop_id, s]));
+  g.calendarById = new Map(g.calendar.map(c => [c.service_id, c]));
+  g.agenciesById = new Map(g.agency.map(a => [a.agency_id, a]));
+
+  g.tripsByRoute = new Map();
+  for (const t of g.trips){
+    let arr = g.tripsByRoute.get(t.route_id);
+    if (!arr){ arr = []; g.tripsByRoute.set(t.route_id, arr); }
+    arr.push(t);
+  }
+
+  g.calendarDatesByService = new Map();
+  for (const cd of g.calendarDates){
+    let arr = g.calendarDatesByService.get(cd.service_id);
+    if (!arr){ arr = []; g.calendarDatesByService.set(cd.service_id, arr); }
+    arr.push(cd);
+  }
+
+  g.freqByTrip = new Map();
+  for (const f of g.frequencies){
+    let arr = g.freqByTrip.get(f.trip_id);
+    if (!arr){ arr = []; g.freqByTrip.set(f.trip_id, arr); }
+    arr.push(f);
+  }
+
+  const heads = new Map();
+  for (const t of g.trips){
+    if (!t.trip_headsign) continue;
+    let s = heads.get(t.route_id);
+    if (!s){ s = new Set(); heads.set(t.route_id, s); }
+    s.add(t.trip_headsign);
+  }
+  g.headsignsByRoute = heads;
+
+  // Categoría = nombre de agencia (agency_name del agency.txt del GTFS)
+  for (const r of g.routes){
+    const ag = g.agenciesById.get(r.agency_id) || (g.agency.length === 1 ? g.agency[0] : null);
+    r.__agency = (ag && (ag.agency_name || '').trim()) || OTHER_GROUP;
+  }
+  g.groups = [...new Set(g.routes.map(r => r.__agency))]
+    .sort((a, b) => (groupRank(a) - groupRank(b)) || a.localeCompare(b, 'es'));
+  const groupIdx = new Map(g.groups.map((n, i) => [n, i]));
+  g.groupCount = g.groups.length;
+
+  for (const r of g.routes){
+    r.__group = groupIdx.get(r.__agency);
+    const hs = heads.get(r.route_id);
+    r.__search = norm(
+      (r.route_short_name || '') + ' ' + (r.route_long_name || '') + ' ' +
+      (r.route_desc || '') + ' ' + r.__agency + ' ' + (hs ? [...hs].join(' ') : '')
+    );
+  }
+
+  buildEntries(g);
+  g.routes.sort((a,b) =>
+    (a.__group - b.__group) ||
+    (a.route_short_name || a.route_id).localeCompare(
+      b.route_short_name || b.route_id, 'es', { numeric: true, sensitivity: 'base' })
+  );
+}
+
+const INJ_TITLE = 'Recorrido Inyección / Sin Identificación';
+const NO_MATCH  = 'SIN MATCH';
+const NO_OP     = '(Sin operadora)';
+const lc = v => (v == null ? '' : String(v)).trim().toLowerCase();
+
+// SIN MATCH primero, luego operadoras de la U más baja a la más alta (U2, U3, … U19)
+function subRank(sub){
+  if (sub == null) return -2;
+  if (sub === NO_MATCH) return -1;
+  const m = sub.match(/^\s*U\s*(\d+)/i);
+  return m ? parseInt(m[1], 10) : 1000;
+}
+
+/* Cruza el DECO con el GTFS dentro de "Red Metropolitana de Movilidad".
+   Match = MISMO literal de CODIGO_USUARIO ↔ route_short_name (sin distinguir mayúsculas;
+   "506y" y "506y2" NO se unen).
+   - Recorrido GTFS con match      → subcategoría = CLI_DSC (operadora)
+   - Recorrido GTFS sin match      → subcategoría "SIN MATCH"
+   - CODIGO_USUARIO sin recorrido  → recorrido gris "Recorrido Inyección / Sin Identificación" */
+function applyDeco(g){
+  const rm = g.groups.findIndex(n => /red metropolitana/.test(norm(n)));
+  if (!g.deco || rm < 0) return;
+
+  const map = new Map();
+  for (const row of g.deco.rows){
+    const code = (row.CODIGO_USUARIO || '').trim();
+    if (!code) continue;
+    const op = (row.CLI_DSC || '').trim() || NO_OP;
+    let e = map.get(lc(code));
+    if (!e){ e = { code, ops: new Map(), matched: false }; map.set(lc(code), e); }
+    let o = e.ops.get(op);
+    if (!o){ o = { n: 0, y: 0 }; e.ops.set(op, o); }
+    o.n++;
+    if (/y$/i.test((row.CODIGO_MTT || '').trim())) o.y++;   // CODIGO_MTT tipo "1321y" = inyección
+  }
+
+  for (const r of g.routes.slice()){
+    const e = map.get(lc(r.route_short_name)) || map.get(lc(r.route_id));
+    if (e) e.matched = true;
+    if (r.__group !== rm) continue;
+    r.__subs = e ? [...e.ops.keys()] : [tsSub(g, r.route_short_name) || NO_MATCH];
+    // Si TODOS los CODIGO_MTT de esa operadora terminan en "y" (inyección), se muestra con "y": 421 → 421y
+    if (e){
+      const base = r.route_short_name || r.route_id;
+      r.__subLabel = new Map();
+      for (const [op, o] of e.ops){
+        if (o.n > 0 && o.y === o.n && !/y$/i.test(base)) r.__subLabel.set(op, base + 'y');
+      }
+    }
+  }
+
+  let inj = 0;
+  for (const e of map.values()){
+    if (e.matched) continue;
+    for (const op of e.ops.keys()){
+      const r = {
+        route_id: '__inj:' + lc(e.code) + '|' + op,
+        route_short_name: e.code,
+        route_long_name: INJ_TITLE,
+        route_color: '9A9AA0', route_text_color: 'FFFFFF',
+        __inj: true, __agency: g.groups[rm], __group: rm, __subs: [op],
+        __search: norm(e.code + ' ' + INJ_TITLE + ' ' + g.groups[rm])
+      };
+      g.routes.push(r); g.routesById.set(r.route_id, r);
+      inj++;
+    }
+  }
+  g.decoStats = { inj, noMatch: g.routes.filter(r => r.__subs && r.__subs[0] === NO_MATCH).length };
+}
+
+const entryCmp = (a, b) =>
+  (a.r.__group - b.r.__group) ||
+  (subRank(a.sub) - subRank(b.sub)) ||
+  String(a.sub || '').localeCompare(String(b.sub || ''), 'es') ||
+  ((TS_RE.test(b.label) ? 1 : 0) - (TS_RE.test(a.label) ? 1 : 0)) ||
+  a.label.localeCompare(b.label, 'es', { numeric: true, sensitivity: 'base' });
+
+// Lista plana (recorrido + subcategoría). Un recorrido con 2 operadoras aparece en ambas.
+function buildEntries(g){
+  buildDecoIdx(g);
+  applyDeco(g);
+  const out = [];
+  for (const r of g.routes){
+    for (const sub of (r.__subs || [null])){
+      const label = (r.__subLabel && r.__subLabel.get(sub)) || r.route_short_name || r.route_id;
+      out.push({ r, sub, label, key: r.route_id + '|' + (sub || ''),
+                 search: r.__search + ' ' + norm(label) + ' ' + norm(sub || '') });
+    }
+  }
+  out.sort(entryCmp);
+  g.entries = out;
+  indexEntries(g);
+
+  // Color de cada subcategoría = color (route_color) más común entre sus recorridos
+  const tally = new Map();
+  for (const e of out){
+    if (e.sub == null || e.r.__inj) continue;
+    const c = normalizeColor(e.r.route_color); if (!c) continue;
+    const k = e.r.__group + '|' + e.sub;
+    let m = tally.get(k); if (!m){ m = new Map(); tally.set(k, m); }
+    m.set(c, (m.get(c) || 0) + 1);
+  }
+  g.subColor = new Map();
+  for (const [k, m] of tally) g.subColor.set(k, [...m.entries()].sort((a, b) => b[1] - a[1])[0][0]);
+}
+
+function renderResults(query){
+  const g = state.gtfs;
+  if (!g) return;
+  const q = norm(query);
+  const list = q ? g.entries.filter(e => e.search.includes(q)) : g.entries;
+
+  const uniq = new Set(list.map(e => e.r.route_id)).size;
+  $('count').textContent = uniq.toLocaleString('es') + (uniq === 1 ? ' recorrido' : ' recorridos');
+
+  const el = $('results');
+  el.innerHTML = '';
+
+  if (!list.length){
+    el.innerHTML = '<div class="empty-list">Sin resultados</div>';
+    return;
+  }
+
+  const subCount = new Map();
+  for (const e of list){
+    if (e.sub != null){ const k = e.r.__group + '|' + e.sub; subCount.set(k, (subCount.get(k) || 0) + 1); }
+  }
+
+  const frag = document.createDocumentFragment();
+  let lastGroup = -1, lastSub;
+
+  for (const e of list){
+    const r = e.r;
+    if (r.__group !== lastGroup){
+      lastGroup = r.__group; lastSub = undefined;
+      if (g.groupCount > 1){
+        const sep = document.createElement('div');
+        sep.className = 'group-sep';
+        sep.textContent = lastGroup === CONT_GROUP ? CONT_TITLE : g.groups[lastGroup];
+        if (lastGroup === CONT_GROUP) sep.classList.add('cont');
+        frag.appendChild(sep);
+      }
+    }
+    if (e.sub !== lastSub){
+      lastSub = e.sub;
+      if (e.sub != null){
+        const sep = document.createElement('div');
+        sep.className = 'sub-sep' + (e.sub === NO_MATCH ? ' nomatch' : '');
+        sep.style.borderLeftColor = g.subColor.get(r.__group + '|' + e.sub) || DEFAULT_COLOR;
+        sep.innerHTML = escapeHtml(e.sub) + ' <span class="n">' + subCount.get(r.__group + '|' + e.sub) + '</span>';
+        frag.appendChild(sep);
+      }
+    }
+
+    const color = normalizeColor(r.route_color) || DEFAULT_COLOR;
+    const tc = normalizeColor(r.route_text_color) || textColorFor(color);
+
+    let dest, subTxt;
+    if (r.__inj){
+      dest = INJ_TITLE; subTxt = 'Sin datos en el GTFS';
+    } else if (r.__live){
+      dest = r.__ts ? TS_TITLE : LIVE_TITLE;
+      subTxt = r.__ts ? '' : 'Sin datos en el DECO ni en el GTFS';
+    } else {
+      const hs = g.headsignsByRoute.get(r.route_id);
+      dest = hs ? [...hs].slice(0, 2).join(' · ') : '';
+      if (!dest) dest = r.route_long_name || '';
+      subTxt = r.route_long_name || '';
+    }
+
+    if (e.cont) subTxt = 'Apoyan: ' + e.cont.codes.join(' · ');
+
+    // Los "Recorrido Inyección / Sin Identificación" son solo informativos (no se pueden abrir),
+    // salvo que tengan buses en tiempo real: ahí se abren para verlos.
+    const clickable = !r.__inj || !!(g.liveBy && g.liveBy.has(e.key));
+    const btn = document.createElement(clickable ? 'button' : 'div');
+    btn.className = 'route-item' + (clickable ? '' : ' inj') + (e.key === state.entryKey ? ' active' : '');
+    btn.dataset.id = r.route_id;
+    btn.dataset.key = e.key;
+    if (!clickable) btn.setAttribute('aria-disabled', 'true');
+    btn.innerHTML =
+      '<span class="route-badge" style="background:' + color + ';color:' + tc + '">' +
+        escapeHtml(e.label) +
+      '</span>' +
+      '<span class="route-text">' +
+        '<span class="route-dest">' + escapeHtml(dest || '—') + '</span>' +
+        (subTxt ? '<span class="route-sub">' + escapeHtml(subTxt) + '</span>' : '') +
+      '</span>';
+    if (clickable) btn.addEventListener('click', () => selectRoute(r.route_id, e));
+    frag.appendChild(btn);
+  }
+
+  el.appendChild(frag);
+}
+
+$('search').addEventListener('input', e => renderResults(e.target.value));
+
+function selectRoute(routeId, entry){
+  state.routeId = routeId;
+  state.entryKey = entry ? entry.key : null;
+  state.label = entry ? entry.label : null;
+  state.sub = entry ? entry.sub : null;
+  state.dir = null;
+  state.shapeId = null;
+
+  document.querySelectorAll('.route-item').forEach(el => {
+    el.classList.toggle('active', state.entryKey ? el.dataset.key === state.entryKey : el.dataset.id === routeId);
+  });
+
+  renderDetail();
+}
+
+function isCircularTrip(tripId){
+  const sts = state.gtfs.stopTimesByTrip.get(tripId);
+  if (!sts || sts.length < 2) return false;
+  return sts[0][1] === sts[sts.length - 1][1];
+}
+
+function getShapePoints(shapeId, tripId){
+  if (shapeId && shapeId !== '__none__'){
+    const pts = state.gtfs.shapesById.get(shapeId);
+    if (pts && pts.length){
+      return pts.filter(p => !isNaN(p[1]) && !isNaN(p[2])).map(p => [p[1], p[2]]);
+    }
+  }
+  const sts = state.gtfs.stopTimesByTrip.get(tripId) || [];
+  return sts.map(st => {
+    const s = state.gtfs.stopsById.get(st[1]);
+    return s ? [+s.stop_lat, +s.stop_lon] : null;
+  }).filter(p => p && !isNaN(p[0]) && !isNaN(p[1]));
+}
+
+function getActiveDays(serviceIds){
+  const active = new Set();
+  const g = state.gtfs;
+  for (const sid of serviceIds){
+    const c = g.calendarById.get(sid);
+    if (c) DAYS.forEach((d, i) => { if (String(c[d]).trim() === '1') active.add(i); });
+
+    const dates = g.calendarDatesByService.get(sid) || [];
+    if (!c){
+      for (const cd of dates){
+        if (cd.exception_type === '1' && cd.date && cd.date.length === 8){
+          const dt = new Date(+cd.date.slice(0,4), +cd.date.slice(4,6)-1, +cd.date.slice(6,8));
+          active.add((dt.getDay() + 6) % 7);
+        }
+      }
+    }
+  }
+  return active;
+}
+
+const DAY_SEC = 86400;
+
+/* Un "segmento" es un tramo continuo de servicio [inicio, fin] en segundos.
+   - Viajes con frequencies.txt: cada franja es un segmento (con headway muy largo,
+     >1 h, solo cuentan las salidas reales, no toda la franja).
+   - Viajes sin frequencies: se toma la primera salida como punto. */
+function collectSegments(trips){
+  const g = state.gtfs, segs = [], pts = [];
+  for (const t of trips){
+    const fr = g.freqByTrip.get(t.trip_id);
+    if (fr){
+      for (const f of fr){
+        const a = toSec(f.start_time), b = toSec(f.end_time), h = +f.headway_secs;
+        if (a === null || b === null) continue;
+        if (!(b > a)){ pts.push(a); continue; }
+        if (h > 3600) segs.push([a, a + Math.floor((b - a - 1) / h) * h]);
+        else segs.push([a, b]);
+      }
+      continue;
+    }
+    const sts = g.stopTimesByTrip.get(t.trip_id);
+    if (!sts || !sts.length) continue;
+    const s = toSec(sts[0][3] || sts[0][2]);
+    if (s !== null) pts.push(s);
+  }
+  return { segs, pts };
+}
+
+/* Une los segmentos en ventanas de horario. NO hay límite de ventanas:
+   un recorrido puede tener 01:00–02:30 y 05:30–23:00 y las que hagan falta.
+   Dos tramos se separan cuando la pausa entre ellos supera ~1,5 h. */
+function serviceWindows(col){
+  if (!col) return null;
+  const D = DAY_SEC;
+  const items = [];
+  const add = (a, b, isSeg) => {
+    if (b < a) b = a;
+    const k = Math.floor(a / D); a -= k * D; b -= k * D;      // inicio dentro del día de servicio [0, 24h)
+    if (b - a > D) b = a + D;
+    items.push([a, b, isSeg]);                                // b puede pasar de 24h (ej. 25:30 = 01:30)
+  };
+  col.segs.forEach(([a, b]) => add(a, b, true));
+  col.pts.forEach(p => add(p, p, false));
+  if (!items.length) return null;
+
+  // Umbral de pausa: 1,5 h; si solo hay salidas sueltas muy espaciadas, se adapta (máx 4 h)
+  let thr = 5400;
+  const ps = [...new Set(col.pts.map(p => ((p % D) + D) % D))].sort((x, y) => x - y);
+  if (ps.length >= 3){
+    const gp = [];
+    for (let i = 0; i < ps.length - 1; i++) gp.push(ps[i+1] - ps[i]);
+    gp.sort((x, y) => x - y);
+    thr = Math.min(14400, Math.max(5400, 1.5 * gp[Math.floor(gp.length / 2)]));
+  }
+
+  items.sort((x, y) => x[0] - y[0]);
+  const m = [];
+  for (const it of items){
+    const last = m[m.length - 1];
+    // Franjas de frecuencia: solo se unen si se tocan o solapan (así se informan TODOS los horarios).
+    // Salidas sueltas (sin frecuencias): se agrupan con el umbral de pausa.
+    const tol = (it[2] && last && last[2]) ? 60 : thr;
+    if (last && it[0] - last[1] <= tol){ last[1] = Math.max(last[1], it[1]); last[2] = last[2] && it[2]; }
+    else m.push([it[0], it[1], it[2]]);
+  }
+
+  // Si una ventana cruza la medianoche (fin > 24:00), absorbe las de madrugada que se solapen con ella
+  for (const w of m){
+    if (w[1] <= D) continue;
+    for (let i = m.length - 1; i >= 0; i--){
+      const o = m[i];
+      if (o !== w && o[0] <= (w[1] - D) + thr){
+        w[1] = Math.min(w[0] + D, Math.max(w[1], o[1] + D));
+        m.splice(i, 1);
+      }
+    }
+  }
+  m.sort((x, y) => x[0] - y[0]);
+
+  // "24 Horas" SOLO si el servicio es continuo y dura exactamente 24 h
+  let is24 = false;
+  if (m.length === 1) is24 = (m[0][1] - m[0][0]) >= D;
+  return { is24, windows: m.map(([a, b]) => [a, b]) };
+}
+
+/* Nombre de una variante según su horario real:
+   - Todo su servicio dentro de 06:00–10:00 (±30 min)  → Horario Punta Mañana
+   - Todo su servicio dentro de 17:00–21:00 (±30 min)  → Horario Punta Tarde
+   - En otro caso                                      → Variante */
+const PUNTAS = [
+  { name: 'Horario Punta Mañana', from: 6*3600 - 1800,  to: 10*3600 + 1800 },
+  { name: 'Horario Punta Tarde',  from: 17*3600 - 1800, to: 21*3600 + 1800 },
+];
+function variantName(w){
+  if (!w || !w.windows.length) return 'Variante';
+  for (const pt of PUNTAS){
+    if (w.windows.every(([a, b]) => b >= a && a >= pt.from && b <= pt.to)) return pt.name;
+  }
+  return 'Variante';
+}
+
+function windowsContain(w, nowSec, dur){
+  if (!w) return false;
+  for (const [a, b0] of w.windows){
+    const b = (b0 < a ? b0 + DAY_SEC : b0) + dur;
+    if ((nowSec >= a && nowSec <= b) || (nowSec + DAY_SEC >= a && nowSec + DAY_SEC <= b)) return true;
+  }
+  return false;
+}
+
+/* Grupos de día en que se muestra el horario */
+const DAY_GROUPS = [
+  { key: 'wk',  label: 'Horario Lunes a Viernes', days: [0,1,2,3,4] },
+  { key: 'sat', label: 'Horario Sábado',          days: [5] },
+  { key: 'sun', label: 'Horario Domingo',         days: [6] },
+];
+
+function serviceDaySet(sid){
+  const g = state.gtfs;
+  if (!g.__svcDays) g.__svcDays = new Map();
+  if (!sid) return new Set([0,1,2,3,4,5,6]);
+  let s = g.__svcDays.get(sid);
+  if (!s){ s = getActiveDays([sid]); g.__svcDays.set(sid, s); }
+  return s;
+}
+
+function windowsByDayGroup(trips){
+  const out = {};
+  for (const dg of DAY_GROUPS){
+    const ts = trips.filter(t => {
+      const ds = serviceDaySet(t.service_id);
+      return dg.days.some(d => ds.has(d));
+    });
+    out[dg.key] = ts.length ? serviceWindows(collectSegments(ts)) : null;
+  }
+  return out;
+}
+
+function scheduleHtml(w){
+  if (!w) return '<span class="sched-none">Sin servicio</span>';
+  const full = w.is24 && w.windows.length === 1 && w.windows[0][0] === 0 && w.windows[0][1] >= DAY_SEC;
+  const lines = full ? [] : w.windows.map(([a, b]) =>
+    '<span class="sched-line">' + (a === b ? fmtSec(a) : fmtSec(a) + ' a ' + fmtSec(b)) + '</span>');
+  return '<div class="sched-lines">' +
+    (w.is24 ? '<span class="sched-24">24 Horas</span>' : '') + lines.join('') + '</div>';
+}
+
+function tripDuration(t){
+  const sts = state.gtfs.stopTimesByTrip.get(t.trip_id);
+  if (!sts || sts.length < 2) return 0;
+  const a = toSec(sts[0][3] || sts[0][2]);
+  const b = toSec(sts[sts.length-1][2] || sts[sts.length-1][3]);
+  if (a === null || b === null || b <= a) return 0;
+  return Math.min(b - a, 10800);
+}
+
+function runsToday(serviceId){
+  const T = state.today;
+  if (!serviceId) return true;
+  if (T.cache.has(serviceId)) return T.cache.get(serviceId);
+  const g = state.gtfs;
+  let res;
+  const ex = (g.calendarDatesByService.get(serviceId) || []).find(cd => cd.date === T.ymd);
+  if (ex && ex.exception_type === '2') res = false;
+  else if (ex && ex.exception_type === '1') res = true;
+  else {
+    const c = g.calendarById.get(serviceId);
+    res = c ? String(c[DAYS[T.dow]]).trim() === '1' : getActiveDays([serviceId]).has(T.dow);
+  }
+  T.cache.set(serviceId, res);
+  return res;
+}
+
+function renderDetail(){
+  const g = state.gtfs;
+  const route = g.routesById.get(state.routeId);
+  if (!route) return;
+
+  const nowD = new Date();
+  state.today = {
+    dow: (nowD.getDay() + 6) % 7,
+    ymd: nowD.getFullYear() + String(nowD.getMonth()+1).padStart(2,'0') + String(nowD.getDate()).padStart(2,'0'),
+    cache: new Map()
+  };
+  const nowSec = nowD.getHours()*3600 + nowD.getMinutes()*60 + nowD.getSeconds();
+
+  $('detail-empty').hidden = true;
+  $('detail-inner').hidden = false;
+  $('stops').hidden = false;
+  const cont = curCont();
+
+  const color = normalizeColor(route.route_color) || DEFAULT_COLOR;
+  const tc = normalizeColor(route.route_text_color) || textColorFor(color);
+
+  const badge = $('detail-badge');
+  badge.textContent = state.label || route.route_short_name || route.route_id;
+  badge.style.background = cont ? CONT_COLOR : color;
+  badge.style.color = cont ? '#1a1a1c' : tc;
+
+  $('detail-title').textContent = route.route_long_name || 'Recorrido ' + (route.route_short_name || route.route_id);
+
+  const ag = g.agenciesById.get(route.agency_id) || (g.agency.length === 1 ? g.agency[0] : null);
+  let subTxt = ag ? (ag.agency_name || '') : (route.__agency || '');
+  if (route.__subs){
+    const ops = (state.sub && route.__subs.includes(state.sub)) ? [state.sub] : route.__subs;
+    subTxt += (subTxt ? ' · ' : '') + ops.join(' / ');
+  }
+  $('detail-sub').textContent = cont ? CONT_TITLE + ' · Apoyan: ' + cont.codes.join(' · ') : subTxt;
+
+  const trips = g.tripsByRoute.get(route.route_id) || [];
+
+  const dirMap = new Map();
+  for (const t of trips){
+    const d = (t.direction_id === '1') ? '1' : '0';
+    let arr = dirMap.get(d);
+    if (!arr){ arr = []; dirMap.set(d, arr); }
+    arr.push(t);
+  }
+
+  let dirs = [...dirMap.keys()].sort();
+  if (!dirs.length){
+    const hasLive = !!(g.liveBy && g.liveBy.has(state.entryKey));
+    if (route.__live || hasLive){ renderLiveOnly(route, true); return; }
+    state.liveOnly = false;
+    if (state.busLayer) state.busLayer.clearLayers();
+    $('tabs').hidden = true;
+    $('variant-note').textContent = '';
+    $('variants').innerHTML = '';
+    $('meta').innerHTML = '';
+    $('stops-head').textContent = '';
+    $('stops').innerHTML = '<div class="stop-row">' + (route.__inj
+      ? 'Este código existe en el DECO, pero no coincide con ningún recorrido del GTFS cargado.'
+      : 'Sin viajes registrados para este recorrido.') + '</div>';
+    if (state.layer) state.layer.clearLayers();
+    return;
+  }
+
+  let circular = false;
+  if (dirs.includes('0')){
+    const rep = dirMap.get('0').find(t => (g.stopTimesByTrip.get(t.trip_id) || []).length > 1);
+    if (rep && isCircularTrip(rep.trip_id)){ circular = true; dirs = ['0']; }
+  }
+
+  if (!state.dir || !dirs.includes(state.dir)) state.dir = dirs[0];
+  state.showAllDirs = dirs.length === 1;
+  state.liveOnly = false;
+
+  const tabsEl = $('tabs');
+  tabsEl.innerHTML = '';
+  if (dirs.length > 1){
+    const labels = { '0': 'Ida', '1': 'Regreso' };
+    for (const d of dirs){
+      const b = document.createElement('button');
+      b.className = 'tab' + (d === state.dir ? ' active' : '');
+      b.textContent = labels[d] || ('Sentido ' + d);
+      b.addEventListener('click', () => {
+        state.dir = d; state.shapeId = null; renderDetail();
+      });
+      tabsEl.appendChild(b);
+    }
+    tabsEl.hidden = false;
+  } else {
+    tabsEl.hidden = true;
+  }
+
+  const dirTrips = dirMap.get(state.dir) || [];
+
+  const shapeMap = new Map();
+  for (const t of dirTrips){
+    const sid = t.shape_id || '__none__';
+    let arr = shapeMap.get(sid);
+    if (!arr){ arr = []; shapeMap.set(sid, arr); }
+    arr.push(t);
+  }
+
+  const nStops = t => (g.stopTimesByTrip.get(t.trip_id) || []).length;
+  const bestTrip = ts => ts.reduce((a,b) => nStops(b) > nStops(a) ? b : a, ts[0]);
+
+  const shapes = [...shapeMap.entries()].sort((a,b) => b[1].length - a[1].length);
+
+  const variantInfo = new Map();
+  let maxTime = -1;
+  let mainVariantId = null;
+
+  for (const [sid, ts] of shapes){
+    const rep = bestTrip(ts);
+    const todayTrips = ts.filter(t => runsToday(t.service_id));
+    const allWindows = serviceWindows(collectSegments(ts));
+    
+    let totalTime = 0;
+    if (allWindows) {
+      if (allWindows.is24) totalTime = 86400; // Mantenemos el peso principal para el 24h
+      else {
+        for (const [a, b] of allWindows.windows) {
+          totalTime += b >= a ? (b - a) : (86400 - a + b);
+        }
+      }
+    }
+
+    variantInfo.set(sid, {
+      rep,
+      dur: tripDuration(rep),
+      all: allWindows,
+      today: todayTrips.length ? serviceWindows(collectSegments(todayTrips)) : null,
+      active: false,
+      totalTime
+    });
+
+    if (totalTime > maxTime) {
+      maxTime = totalTime;
+      mainVariantId = sid;
+    }
+  }
+
+  const anyToday = [...variantInfo.values()].some(v => v.today);
+  for (const v of variantInfo.values()){
+    v.active = windowsContain(anyToday ? v.today : v.all, nowSec, v.dur);
+  }
+
+  let currentShape = state.shapeId;
+  if (!currentShape || !shapeMap.has(currentShape)){
+    const hit = shapes.find(([sid]) => variantInfo.get(sid).active);
+    currentShape = (hit || shapes[0])[0];
+  }
+  state.shapeId = currentShape;
+
+  const shapeTrips = shapeMap.get(currentShape) || [];
+  const curInfo = variantInfo.get(currentShape);
+  const repTrip = curInfo.rep;
+
+  const variantsEl = $('variants'), noteEl = $('variant-note');
+  variantsEl.innerHTML = '';
+  noteEl.textContent = '';
+  if (shapes.length > 1){
+    const hasMainVariant = maxTime > 43200; // >12 horas indica "mayor parte del día"
+
+    shapes.forEach(([sid], i) => {
+      const info = variantInfo.get(sid);
+      const b = document.createElement('button');
+      const isNormal = hasMainVariant && sid === mainVariantId;
+
+      b.className = 'variant' + (sid === currentShape ? ' active' : '');
+      const vName = isNormal ? 'Horario Normal' : variantName(info.all);
+      b.innerHTML = vName + (info.active ? '<span class="now">● ahora</span>' : '');
+      b.title = info.rep.trip_headsign || vName;
+      
+      if (isNormal) {
+        b.style.backgroundColor = (sid === currentShape) ? '#ececef' : '#ffffff';
+        b.style.borderColor = (sid === currentShape) ? '#1a1a1c' : '#d6d6db';
+        b.style.color = '#1a1a1c';
+        b.onmouseover = () => { if (sid !== currentShape) b.style.backgroundColor = '#f2f2f4'; };
+        b.onmouseout = () => { if (sid !== currentShape) b.style.backgroundColor = '#ffffff'; };
+      }
+
+      b.addEventListener('click', () => { state.shapeId = sid; renderDetail(); });
+      variantsEl.appendChild(b);
+    });
+    const isCurrentNormal = hasMainVariant && currentShape === mainVariantId;
+    const bits = [isCurrentNormal ? 'Horario Normal' : variantName(curInfo.all)];
+    if (repTrip.trip_headsign) bits.push('hacia ' + repTrip.trip_headsign);
+    bits.push(nStops(repTrip) + ' paraderos');
+    noteEl.textContent = bits.join(' · ');
+  }
+
+  const serviceIds = new Set();
+  for (const t of shapeTrips) if (t.service_id) serviceIds.add(t.service_id);
+  const activeDays = getActiveDays(serviceIds);
+
+  const byGroup = windowsByDayGroup(shapeTrips);
+
+  let metaHtml =
+    '<div class="meta-block">' +
+      '<span class="meta-label">Días de operación</span>' +
+      '<span class="days">' +
+        DAYS.map((d,i) =>
+          '<span class="day' + (activeDays.has(i) ? ' on' : '') + '">' + DAY_LBL[i] + '</span>'
+        ).join('') +
+      '</span>' +
+    '</div>' +
+    '<span class="meta-sep"></span>' +
+    DAY_GROUPS.map(dg =>
+      '<div class="meta-block">' +
+        '<span class="meta-label">' + dg.label + '</span>' +
+        scheduleHtml(byGroup[dg.key]) +
+      '</div>'
+    ).join('');
+
+  if (dirs.length > 1 || circular) {
+    metaHtml +=
+      '<div class="meta-block">' +
+        '<span class="meta-label">Sentido</span>' +
+        '<span class="meta-value">' +
+          (dirs.length === 1
+            ? 'Circular'
+            : (state.dir === '0' ? 'Ida' : 'Regreso')) +
+        '</span>' +
+      '</div>';
+  }
+
+  $('meta').innerHTML = metaHtml;
+
+  const sts = g.stopTimesByTrip.get(repTrip.trip_id) || [];
+
+  $('stops-head').textContent = 'Paraderos · ' + sts.length + ' en total';
+
+  const stopsEl = $('stops');
+  stopsEl.innerHTML = '';
+
+  const mapPoints = getShapePoints(currentShape, repTrip.trip_id);
+  const mapStops = [];
+
+  const frag = document.createDocumentFragment();
+  sts.forEach((st, i) => {
+    const s = g.stopsById.get(st[1]);
+    const name = s ? (s.stop_name || st[1]) : st[1];
+    if (s) mapStops.push({ lat: +s.stop_lat, lng: +s.stop_lon, name, idx: i });
+
+    const row = document.createElement('div');
+    row.className = 'stop-row';
+    row.dataset.idx = i;
+    row.innerHTML =
+      '<span class="stop-rail"><span class="stop-dot"></span></span>' +
+      '<span class="stop-idx">' + (i+1) + '</span>' +
+      '<span class="stop-name">' + escapeHtml(name) + '</span>';
+    row.addEventListener('click', () => {
+      const mk = row._marker;
+      if (mk && state.map){
+        state.map.setView(mk.getLatLng(), Math.max(state.map.getZoom(), 16));
+        mk.openPopup();
+      }
+    });
+    frag.appendChild(row);
+  });
+  stopsEl.appendChild(frag);
+
+  drawMap(mapPoints, mapStops, color, stopsEl);
+}
+
+function mapMessage(msg){
+  const el = $('map-msg');
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+
+function ensureMap(){
+  if (state.map) return state.map;
+  if (typeof L === 'undefined') return null;
+  const map = L.map('map', { zoomControl: true, attributionControl: true });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+  map.setView([-33.45, -70.66], 11);
+  state.layer = L.layerGroup().addTo(map);
+  state.map = map;
+  return map;
+}
+
+async function drawMap(points, stops, color, stopsEl){
+  if (typeof L === 'undefined'){
+    mapMessage('Cargando mapa…');
+    try { await libLeaflet; }
+    catch (e){ mapMessage('No se pudo cargar el mapa (se necesita conexión a internet). La lista de paraderos sí está disponible.'); return; }
+  }
+  mapMessage('');
+  const map = ensureMap();
+  if (!map) return;
+
+  map.invalidateSize();
+  state.layer.clearLayers();
+
+  if (points.length > 1){
+    const line = L.polyline(points, {
+      color, weight: 4, opacity: 0.9, lineJoin: 'round', lineCap: 'round'
+    }).addTo(state.layer);
+    map.fitBounds(line.getBounds(), { padding: [28, 28] });
+  } else {
+    const valid = stops.filter(s => !isNaN(s.lat) && !isNaN(s.lng));
+    if (valid.length) map.fitBounds(valid.map(s => [s.lat, s.lng]), { padding: [28, 28], maxZoom: 16 });
+    else mapMessage('Este recorrido no tiene coordenadas para mostrar en el mapa.');
+  }
+
+  stops.forEach(s => {
+    if (isNaN(s.lat) || isNaN(s.lng)) return;
+    const m = L.circleMarker([s.lat, s.lng], {
+      radius: 4.5, color: '#fff', weight: 1.6,
+      fillColor: color, fillOpacity: 1
+    }).addTo(state.layer);
+    m.bindPopup('<b>' + (s.idx + 1) + '.</b> ' + escapeHtml(s.name));
+
+    const row = stopsEl.querySelector('.stop-row[data-idx="' + s.idx + '"]');
+    if (row) row._marker = m;
+  });
+
+  state.busColor = color;
+  drawBuses(false);
+
+  setTimeout(() => map.invalidateSize(), 50);
+}
+
+/* =====================================================================
+   BUSES EN TIEMPO REAL
+   Fuente: https://velocidades.seguimos.cl/?all-buses-data=1  (GeoJSON, un Point por bus)
+   Cada bus trae route_code, route_direction ("Ida"/"Regreso") y license_plate (PPU).
+
+   Cómo se asigna cada bus a un recorrido de la lista (en este orden):
+     1. route_code = CODIGO_RUTA del DECO            → ese servicio (y su operadora)
+     2. route_code = CODIGO_USUARIO (ej. "B45")      → ese servicio (ya venía "matcheado")
+     3. route_code sin variante/sentido ("T1466 03I" → "T1466", "T315 E0 02R" → "T315 E0")
+        = CODIGO_RUTA sin variante/sentido           → ese servicio; si no calza completo,
+        se prueba solo con el primer token ("T1816 C2 00R" → "T1816")
+     4. CODIGO_MTT / SERVICIO_DECO                   → ese servicio
+     5. recorrido del GTFS con ese nombre            → ese recorrido
+     6. nada de lo anterior                          → recorrido sin informar en "SIN MATCH"
+        (códigos TxTS, ej. T2TS, van dentro de la operadora UX: T2TS → "U2 - Su Bus")
+   El sentido sale de route_direction (o del sufijo I/R del código) y se muestra en Ida / Regreso.
+   Todas las variantes del servicio (T1466 00I, T1466 03I…) caen en el mismo Ida/Regreso.
+   ===================================================================== */
+const LIVE_URL = 'https://velocidades.seguimos.cl/?all-buses-data=1';
+const LIVE_EVERY = 20000;   // ms entre actualizaciones
+const LIVE_TITLE = 'Recorrido sin informar (solo buses en tiempo real)';
+const TS_RE = /^T(\d+)TS$/i;
+const TS_TITLE = 'Transito a Servicio';
+const CONT_TITLE = 'PLAN CONTINGENCIA RED';
+const CONT_GROUP = -1;            // grupo propio, siempre antes que Metro y los demás
+const CONT_COLOR = '#FFD000';
+let contSig = null, contTimer = null;
+// Directo primero; si el sitio no permite CORS, se prueba a través de proxies públicos.
+const LIVE_PROXIES = [
+  u => u,
+  u => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
+  u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u)
+];
+let liveTimer = null, liveBusy = false, liveProxy = 0;
+
+async function fetchLive(){
+  const order = [liveProxy, ...LIVE_PROXIES.keys()].filter((v, i, a) => a.indexOf(v) === i);
+  let lastErr = null;
+  for (const i of order){
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 20000);
+    try {
+      const r = await fetch(LIVE_PROXIES[i](LIVE_URL), { cache: 'no-store', signal: ctl.signal });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json();
+      const fc = j && (j.geojson || j);
+      if (!fc || !Array.isArray(fc.features)) throw new Error('Formato inesperado');
+      liveProxy = i;
+      return fc.features;
+    } catch (e){ lastErr = e; }
+    finally { clearTimeout(to); }
+  }
+  throw lastErr || new Error('Sin respuesta');
+}
+
+const parseTs = s => {
+  const t = Date.parse(String(s || '').replace(/([+-]\d\d)(\d\d)$/, '$1:$2'));
+  return isNaN(t) ? null : t;
+};
+
+// "T1466 03I" → "T1466" · "T315 E0 02R" → "T315 E0" · "B45" → "B45"
+function stripVar(code){
+  const t = String(code == null ? '' : code).trim();
+  const m = t.match(/^(.*?)\s+(\d{2})([IR])$/i);
+  return m ? m[1].trim() : t;
+}
+
+function busDir(p, code){
+  // TxTS: 00I = Ida y 00R = Regreso, sin importar lo que diga route_direction
+  const sfx = String(code).match(/\s\d\d([IR])$/i);
+  if (sfx && TS_RE.test(stripVar(code))) return sfx[1].toUpperCase();
+  const d = lc(p.route_direction);
+  if (d.startsWith('reg')) return 'R';
+  if (d.startsWith('ida')) return 'I';
+  const m = String(code).match(/\d\d([IR])$/i);
+  return m ? m[1].toUpperCase() : '';
+}
+
+// Índices del DECO para resolver el route_code de cada bus
+function buildDecoIdx(g){
+  g.decoIdx = null;
+  if (!g.deco) return;
+  const ix = { user: new Set(), ruta: new Map(), prefix: new Map(), mtt: new Map() };
+  const addSet = (map, k, v) => { let s = map.get(k); if (!s){ s = new Set(); map.set(k, s); } s.add(v); };
+  for (const r of g.deco.rows){
+    const u = lc(r.CODIGO_USUARIO);
+    if (!u) continue;
+    ix.user.add(u);
+    const cr = lc(r.CODIGO_RUTA);
+    if (cr){
+      if (!ix.ruta.has(cr)) ix.ruta.set(cr, r);
+      const p = lc(stripVar(r.CODIGO_RUTA));
+      let a = ix.prefix.get(p); if (!a){ a = []; ix.prefix.set(p, a); }
+      a.push(r);
+    }
+    for (const m of [r.CODIGO_MTT, r.SERVICIO_DECO]){
+      const k = lc(m); if (k) addSet(ix.mtt, k, u);
+    }
+  }
+  g.decoIdx = ix;
+}
+
+// Entradas de la lista por código de servicio (nombre corto / id del recorrido)
+function indexEntries(g){
+  g.entriesByUser = new Map();
+  g.injKeys = new Set();
+  g.liveEntries = g.liveEntries || new Map();
+  for (const e of g.entries){
+    if (e.r.__inj) g.injKeys.add(e.key);
+    for (const k of new Set([lc(e.r.route_short_name), lc(e.r.route_id)])){
+      if (!k) continue;
+      let a = g.entriesByUser.get(k); if (!a){ a = []; g.entriesByUser.set(k, a); }
+      a.push(e);
+    }
+  }
+}
+
+// Operadora (tal como viene en el DECO) a partir de su número: 2 → "U2 - Su Bus"
+function opByNum(g, n){
+  if (!g.deco) return null;
+  if (!g.opByNum) g.opByNum = new Map();
+  n = String(n);
+  if (!g.opByNum.has(n)){
+    const re = new RegExp('^\\s*U\\s*' + n + '(?!\\d)', 'i');
+    const row = g.deco.rows.find(r => re.test(r.CLI_DSC || ''));
+    g.opByNum.set(n, row ? row.CLI_DSC.trim() : null);
+  }
+  return g.opByNum.get(n);
+}
+
+// T2TS → "U2 - Su Bus" · T14TS → "U14 - VOY Santiago US14"
+function tsSub(g, name){
+  const m = TS_RE.exec(String(name == null ? '' : name).trim());
+  return m ? opByNum(g, m[1]) : null;
+}
+
+// T1590 → U15 · T293 → U2 (número del código sin sus 2 últimos dígitos).
+// "override" = operadora indicada en contingencia.json (ej. "U15").
+function opForCode(g, label, override){
+  let n = null;
+  if (override){ const m = /(\d+)/.exec(String(override)); if (m) n = m[1]; }
+  if (n == null){
+    const m = /^T(\d{3,4})(?!\d)/i.exec(String(label).trim());
+    if (m) n = m[1].slice(0, -2);
+  }
+  return n ? opByNum(g, n) : null;
+}
+
+// Recorrido "sin informar": existe en el seguimiento de buses pero no en el DECO ni en el GTFS.
+// TxTS → "Transito a Servicio" dentro de su operadora. Código de apoyo de contingencia → su operadora.
+function liveEntry(g, label){
+  const m = TS_RE.exec(label);
+  let sub = m ? tsSub(g, label) : null;
+  if (!sub){
+    const its = g.contSupBy && g.contSupBy.get(lc(label));
+    if (its) sub = opForCode(g, label, (its.find(i => i.op) || {}).op);
+  }
+  sub = sub || NO_MATCH;
+  const title = m ? TS_TITLE : LIVE_TITLE;
+  const rid = '__live:' + lc(label) + '|' + sub;
+  let e = g.liveEntries.get(rid);
+  if (e) return e;
+  const rm = g.groups.findIndex(n => /red metropolitana/.test(norm(n)));
+  const grp = rm >= 0 ? rm : 0;
+  const r = {
+    route_id: rid, route_short_name: label, route_long_name: title,
+    route_color: '9A9AA0', route_text_color: 'FFFFFF',
+    __live: true, __ts: !!m, __agency: g.groups[grp], __group: grp, __subs: [sub],
+    __search: norm(label + ' ' + title + ' ' + g.groups[grp])
+  };
+  e = { r, sub, label, key: rid + '|' + sub, search: r.__search + ' ' + norm(label) + ' ' + norm(sub) };
+  g.liveEntries.set(rid, e);
+  g.routes.push(r); g.routesById.set(rid, r);
+  g.entries.push(e);
+  g.__liveAdded = true;
+  return e;
+}
+
+// Un recorrido sin informar solo existe mientras tenga buses: se quita de la lista
+function dropLive(g, e){
+  g.liveEntries.delete(e.r.route_id);
+  const i = g.entries.indexOf(e); if (i >= 0) g.entries.splice(i, 1);
+  g.routesById.delete(e.r.route_id);
+  const j = g.routes.indexOf(e.r); if (j >= 0) g.routes.splice(j, 1);
+}
+
+// Si el recorrido que se estaba viendo ya no existe en la lista, se limpia el detalle
+function ensureSelection(g){
+  if (!state.entryKey || g.entries.some(e => e.key === state.entryKey)) return;
+  state.routeId = null; state.entryKey = null; state.label = null; state.sub = null;
+  state.dir = null; state.shapeId = null; state.liveOnly = false; state.openBus = null;
+  $('detail-inner').hidden = true;
+  $('detail-empty').hidden = false;
+  if (state.busLayer) state.busLayer.clearLayers();
+  if (state.layer) state.layer.clearLayers();
+}
+
+// route_code de un bus → entradas de la lista donde debe aparecer
+function resolveEntries(g, rawCode){
+  const code = String(rawCode == null ? '' : rawCode).trim();
+  if (!code) return [];
+  const c = lc(code), base = stripVar(code), p = lc(base), tok = p.split(/\s+/)[0];
+  const out = [], seen = new Set();
+  const push = es => { for (const e of es) if (!seen.has(e.key)){ seen.add(e.key); out.push(e); } };
+  const byUser = (u, op) => {
+    const list = g.entriesByUser.get(u) || [];
+    const f = op ? list.filter(e => e.sub === op) : [];
+    return f.length ? f : list;
+  };
+
+  const ix = g.decoIdx;
+  if (ix){
+    const hits = [];
+    const row = ix.ruta.get(c);
+    if (row) hits.push([lc(row.CODIGO_USUARIO), (row.CLI_DSC || '').trim()]);
+    else if (ix.user.has(c)) hits.push([c, null]);
+    else if (ix.user.has(p)) hits.push([p, null]);
+    else {
+      const rows = ix.prefix.get(p) || (tok !== p ? ix.prefix.get(tok) : null);
+      if (rows){
+        for (const r of rows) hits.push([lc(r.CODIGO_USUARIO), (r.CLI_DSC || '').trim()]);
+      } else {
+        const us = ix.mtt.get(c) || ix.mtt.get(p);
+        if (us) for (const u of us) hits.push([u, null]);
+      }
+    }
+    for (const [u, op] of hits) push(byUser(u, op));
+  }
+  if (!out.length){
+    for (const k of [c, p, tok]){
+      const es = g.entriesByUser.get(k);
+      if (es){ push(es); break; }
+    }
+  }
+  if (!out.length) push([liveEntry(g, base || code)]);
+  return out;
+}
+
+// Reparte todos los buses del último GeoJSON entre las entradas de la lista
+function applyLive(feats){
+  const g = state.gtfs;
+  if (!g || !g.entriesByUser) return;
+  const by = new Map(), cache = new Map();
+  const put = (key, d, bus) => {
+    let b = by.get(key);
+    if (!b){ b = { I: [], R: [], U: [] }; by.set(key, b); }
+    b[d || 'U'].push(bus);
+  };
+  let total = 0;
+  g.__liveAdded = false;
+
+  for (const f of feats){
+    const p = f && f.properties, co = f && f.geometry && f.geometry.coordinates;
+    if (!p || !co) continue;
+    const code = String(p.route_code == null ? '' : p.route_code).trim();
+    if (!code) continue;
+    const lat = +co[1], lng = +co[0];
+    if (!isFinite(lat) || !isFinite(lng)) continue;
+    let es = cache.get(code);
+    if (!es){ es = resolveEntries(g, code); cache.set(code, es); }
+    const d = busDir(p, code);
+    const bus = { ppu: String(p.license_plate == null ? '' : p.license_plate).trim() || '—',
+                  lat, lng, speed: p.speed, ts: parseTs(p.timestamp), code, dir: d };
+    total++;
+    for (const e of es) put(e.key, d, bus);
+
+    // Apoyo de contingencia: el bus también se ve en el servicio apoyado (en amarillo)
+    const sl = d && g.contSupBy && g.contSupBy.get(lc(stripVar(code)));
+    if (sl) for (const s of sl) if (s.dir === d) put(s.key, s.en, Object.assign({}, bus, { sup: true }));
+  }
+
+  // Servicio en contingencia = sus propios buses + los buses de apoyo
+  if (g.contEntries) for (const ce of g.contEntries.values()){
+    const seen = new Set();
+    for (const be of ce.cont.baseEntries){
+      const b = by.get(be.key);
+      if (!b) continue;
+      for (const d of ['I', 'R', 'U']) for (const bus of b[d]){
+        const k = bus.ppu + '|' + d;
+        if (seen.has(k)) continue;
+        seen.add(k); put(ce.key, d, bus);
+      }
+    }
+  }
+
+  // Recorridos sin informar que ya no tienen ningún bus: se sacan de la lista
+  let removed = false;
+  for (const e of [...g.liveEntries.values()]){
+    if (!by.has(e.key)){ dropLive(g, e); removed = true; }
+  }
+
+  g.liveBy = by; g.liveTotal = total; g.liveAt = Date.now();
+  if (g.__liveAdded) g.entries.sort(entryCmp);
+  ensureSelection(g);
+
+  // Se vuelve a dibujar la lista solo si cambió algo (nuevos/quitados o inyecciones con buses)
+  const sig = [...by.keys()].filter(k => g.injKeys.has(k)).sort().join('\n');
+  if (g.__liveAdded || removed || sig !== g.liveSig){
+    g.liveSig = sig;
+    const el = $('results'), top = el.scrollTop;
+    renderResults($('search').value);
+    el.scrollTop = top;
+  }
+  renderFileLabel();
+  refreshDetailBuses();
+}
+
+// Buses del recorrido/sentido que se está viendo
+function currentBuses(){
+  const g = state.gtfs;
+  if (!g || !g.liveBy || !state.entryKey) return [];
+  const b = g.liveBy.get(state.entryKey);
+  if (!b) return [];
+  if (state.showAllDirs || state.dir == null) return [...b.I, ...b.R, ...b.U];
+  return state.dir === '0' ? [...b.I, ...b.U] : [...b.R, ...b.U];
+}
+
+function busPopup(b){
+  const t = b.ts ? new Date(b.ts).toLocaleTimeString('es-CL') : '';
+  const dirTxt = b.dir === 'I' ? 'Ida' : b.dir === 'R' ? 'Regreso' : '';
+  return '<b>' + escapeHtml(b.ppu) + '</b><br>' + escapeHtml(b.code) + (dirTxt ? ' · ' + dirTxt : '') + (b.sup ? ' · Apoyo' : '') +
+    ((b.speed != null && b.speed !== '') ? '<br>' + Math.round(+b.speed) + ' km/h' : '') +
+    (t ? (b.speed != null ? ' · ' : '<br>') + t : '');
+}
+
+// Círculo más grande que un paradero, con la PPU en un rectángulo arriba
+function drawBuses(fit){
+  const map = state.map;
+  if (!map || typeof L === 'undefined') return;
+  if (!state.busLayer) state.busLayer = L.layerGroup().addTo(map);
+  const lyr = state.busLayer;
+  state.redrawing = true;
+  lyr.clearLayers();
+  state.redrawing = false;
+
+  const bs = currentBuses();
+  const pts = [];
+  for (const b of bs){
+    pts.push([b.lat, b.lng]);
+    const m = L.circleMarker([b.lat, b.lng], {
+      radius: 9, color: '#1a1a1c', weight: 2,
+      fillColor: b.sup ? CONT_COLOR : (state.busColor || DEFAULT_COLOR), fillOpacity: 1
+    }).addTo(lyr);
+    m.bindTooltip(escapeHtml(b.ppu), { permanent: true, direction: 'top', offset: [0, -9], className: 'bus-tip' });
+    m.bindPopup(busPopup(b));
+    m.on('popupopen', () => { state.openBus = b.ppu; });
+    m.on('popupclose', () => { if (!state.redrawing && state.openBus === b.ppu) state.openBus = null; });
+    if (state.openBus === b.ppu) m.openPopup();   // la actualización no cierra el popup abierto
+  }
+  if (state.liveOnly) mapMessage(bs.length ? '' : 'Sin buses reportando en este recorrido por ahora.');
+  if (fit && pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
+}
+
+// Detalle de un recorrido sin trazado (sin informar / inyección sin GTFS): solo los buses
+function renderLiveOnly(route, fresh){
+  const g = state.gtfs;
+  const color = normalizeColor(route.route_color) || DEFAULT_COLOR;
+  const b = (g.liveBy && g.liveBy.get(state.entryKey)) || { I: [], R: [], U: [] };
+  const dirs = [];
+  if (b.I.length) dirs.push('0');
+  if (b.R.length) dirs.push('1');
+  if (!state.dir || !dirs.includes(state.dir)){ state.dir = dirs[0] || null; fresh = true; }
+  state.showAllDirs = dirs.length === 0;
+  state.liveOnly = true;
+  state.busColor = color;
+
+  const tabsEl = $('tabs');
+  tabsEl.innerHTML = '';
+  const labels = { '0': 'Ida', '1': 'Regreso' };
+  for (const d of dirs){
+    const t = document.createElement('button');
+    t.className = 'tab' + (d === state.dir ? ' active' : '');
+    t.textContent = labels[d];
+    t.addEventListener('click', () => { state.dir = d; renderLiveOnly(route, true); });
+    tabsEl.appendChild(t);
+  }
+  tabsEl.hidden = !dirs.length;
+
+  $('variant-note').textContent = '';
+  $('variants').innerHTML = '';
+  $('meta').innerHTML = '';
+  $('stops-head').textContent = 'Buses en tiempo real · ' + currentBuses().length + ' en total';
+  // Transito a Servicio (TxTS): sin mensaje ni recuadro de paraderos
+  $('stops').hidden = !!route.__ts;
+  $('stops').innerHTML = route.__ts ? '' : '<div class="stop-row">' + escapeHtml(route.__live
+    ? 'Este código aparece en el seguimiento de buses, pero no está informado en el DECO ni en el GTFS: solo se muestran los buses en tiempo real.'
+    : route.__inj
+      ? 'Este código existe en el DECO, pero no coincide con ningún recorrido del GTFS cargado: solo se muestran los buses en tiempo real.'
+      : 'Sin viajes registrados para este recorrido: solo se muestran los buses en tiempo real.') + '</div>';
+  drawLiveOnlyMap(fresh);
+}
+
+async function drawLiveOnlyMap(fit){
+  if (typeof L === 'undefined'){
+    mapMessage('Cargando mapa…');
+    try { await libLeaflet; }
+    catch (e){ mapMessage('No se pudo cargar el mapa (se necesita conexión a internet).'); return; }
+  }
+  mapMessage('');
+  const map = ensureMap();
+  if (!map) return;
+  map.invalidateSize();
+  state.layer.clearLayers();
+  drawBuses(fit);
+}
+
+// En cada actualización: se redibujan solo los buses (sin mover el mapa)
+function refreshDetailBuses(){
+  const g = state.gtfs;
+  if (!g || !state.routeId || $('detail-inner').hidden) return;
+  const route = g.routesById.get(state.routeId);
+  if (!route) return;
+  if ((g.tripsByRoute.get(route.route_id) || []).length) drawBuses(false);
+  else if (route.__live || (g.liveBy && g.liveBy.has(state.entryKey))) renderLiveOnly(route, false);
+}
+
+function renderFileLabel(){
+  const g = state.gtfs;
+  let t = state.fileLabel || '';
+  if (g && g.liveAt){
+    t += ' · ' + g.liveTotal.toLocaleString('es') + ' buses · ' +
+         new Date(g.liveAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+  } else if (state.liveErr){
+    t += ' · buses: sin conexión';
+  }
+  $('file-name').textContent = t;
+}
+
+async function pollLive(){
+  if (liveBusy) return;
+  liveBusy = true;
+  try {
+    const feats = await fetchLive();
+    state.liveRaw = feats; state.liveErr = false;
+    applyLive(feats);
+  } catch (e){
+    console.warn('Buses en tiempo real:', e);
+    if (!(state.gtfs && state.gtfs.liveAt)){ state.liveErr = true; renderFileLabel(); }
+  } finally { liveBusy = false; }
+}
+
+function startLive(){
+  if (state.liveRaw) applyLive(state.liveRaw);   // GTFS recargado: se reutiliza el último dato
+  pollLive();
+  if (!liveTimer) liveTimer = setInterval(() => { if (!document.hidden) pollLive(); }, LIVE_EVERY);
+  if (!contTimer) contTimer = setInterval(() => { if (!document.hidden) checkCont(); }, CONT_EVERY);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && state.gtfs) pollLive(); });
+
+
+/* =====================================================================
+   PLAN CONTINGENCIA RED  ·  data/contingencia.json (repo stpm_gtfs)
+   Formato:
+   { "apoyos": [ { "servicio": "B20",
+                   "apoyan": [ { "codigo": "T1590 00I", "sentido": "Ida" }, ... ] } ] }
+   - servicio : CODIGO_USUARIO del servicio apoyado (ej. B20)
+   - codigo   : código del bus que apoya (con o sin variante: T1590 / T1590 00I)
+   - sentido  : "Ida" o "Regreso" (obligatorio; si el código termina en I/R, se usa ese)
+   - en       : (opcional) pestaña del servicio apoyado donde se ve; por defecto = sentido
+   - operadora: (opcional) "U15"; por defecto sale del código (T1590 → U15, T293 → U2)
+   - activo   : (opcional) false para desactivar un servicio sin borrarlo
+   ===================================================================== */
+const CONT_EVERY = 120000;
+const dirTxt = v => { const t = lc(v); return t.startsWith('i') ? 'I' : t.startsWith('r') ? 'R' : ''; };
+
+function parseCont(cfg){
+  const list = Array.isArray(cfg) ? cfg : (cfg && (cfg.apoyos || cfg.contingencia));
+  const out = [];
+  if (!Array.isArray(list)) return out;
+  for (const it of list){
+    if (!it || it.activo === false) continue;
+    const servicio = String(it.servicio == null ? '' : it.servicio).trim();
+    if (!servicio || !Array.isArray(it.apoyan)) continue;
+    const apoyan = [], codes = [];
+    for (const a of it.apoyan){
+      const o = (typeof a === 'string') ? { codigo: a } : (a || {});
+      const codigo = String(o.codigo == null ? '' : o.codigo).trim();
+      if (!codigo) continue;
+      const sfx = codigo.match(/\s+\d\d([IR])$/i);
+      const dir = dirTxt(o.sentido) || (sfx ? sfx[1].toUpperCase() : '');
+      if (!dir){ console.warn('contingencia.json: falta "sentido" (Ida/Regreso) para ' + codigo); continue; }
+      apoyan.push({ codigo, base: lc(stripVar(codigo)), dir, en: dirTxt(o.en) || dir,
+                    op: o.operadora ? String(o.operadora).trim() : '' });
+      codes.push(codigo);
+    }
+    if (apoyan.length) out.push({ servicio, apoyan, codes });
+  }
+  return out;
+}
+
+// null = no se pudo leer (se mantiene lo anterior) · cfg null con sig 'none' = el archivo no existe
+async function loadCont(){
+  try {
+    const r = await fetch(RAW_BASE + 'contingencia.json', { cache: 'no-store' });
+    if (r.status === 404) return { cfg: null, sig: 'none' };
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    let txt = await r.text();
+    if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
+    return { cfg: JSON.parse(txt), sig: txt };
+  } catch (e){
+    console.warn('contingencia.json:', e);
+    return null;
+  }
+}
+
+// Crea la sección "PLAN CONTINGENCIA RED": un ítem amarillo por servicio apoyado
+function applyCont(g, cfg){
+  if (g.contEntries) for (const e of g.contEntries.values()){
+    const i = g.entries.indexOf(e); if (i >= 0) g.entries.splice(i, 1);
+  }
+  g.contEntries = new Map(); g.contSupBy = new Map();
+  // Los recorridos sin informar se re-crean (con la operadora que corresponda a los códigos de apoyo)
+  for (const e of [...g.liveEntries.values()]) dropLive(g, e);
+
+  for (const sv of parseCont(cfg)){
+    const list = g.entriesByUser.get(lc(sv.servicio)) || [];
+    const base = list.find(e => !e.r.__inj) || list[0];
+    if (!base){ console.warn('contingencia.json: el servicio ' + sv.servicio + ' no existe en el DECO/GTFS'); continue; }
+    const key = 'cont:' + lc(sv.servicio) + '|';
+    let e = g.contEntries.get(key);
+    if (e){
+      e.cont.codes.push(...sv.codes);
+    } else {
+      const r = Object.create(base.r);
+      r.route_color = 'FFD000'; r.route_text_color = '1A1A1C'; r.__group = CONT_GROUP;
+      e = { r, sub: null, label: base.label, key,
+            search: norm(CONT_TITLE + ' ' + base.label + ' ' + base.r.__search),
+            cont: { servicio: sv.servicio, codes: [...sv.codes], baseEntries: list } };
+      g.contEntries.set(key, e);
+      g.entries.push(e);
+    }
+    e.search += ' ' + norm(sv.codes.join(' '));
+    for (const a of sv.apoyan){
+      let arr = g.contSupBy.get(a.base);
+      if (!arr){ arr = []; g.contSupBy.set(a.base, arr); }
+      arr.push({ key, dir: a.dir, en: a.en, op: a.op });
+    }
+  }
+  g.entries.sort(entryCmp);
+}
+
+// Entrada de contingencia que se está viendo (null si es un recorrido normal)
+function curCont(){
+  const g = state.gtfs;
+  return (g && g.contEntries && state.entryKey && g.contEntries.get(state.entryKey)) ? g.contEntries.get(state.entryKey).cont : null;
+}
+
+// Revisa si cambió contingencia.json (se puede editar en el repo sin recargar la página)
+async function checkCont(){
+  const g = state.gtfs;
+  if (!g) return;
+  const c = await loadCont();
+  if (!c || c.sig === contSig) return;
+  contSig = c.sig;
+  applyCont(g, c.cfg);
+  ensureSelection(g);
+  const el = $('results'), top = el.scrollTop;
+  renderResults($('search').value);
+  el.scrollTop = top;
+  if (state.liveRaw) applyLive(state.liveRaw);
+}
+
+// Inicio: cargar automáticamente el GTFS más reciente
+autoLoad();
+</script>
 </body>
 </html>
