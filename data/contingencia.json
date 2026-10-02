@@ -6,6 +6,47 @@
       "apoyan": [
         { "codigo": "T1590 00I", "sentido": "Ida" }
       ]
+    },
+    {
+      "servicio": "105c",
+      "apoyan": [
+        { "codigo": "294x", "sentido": "Retorno" }
+      ]
+    },
+        {
+      "servicio": "105",
+      "apoyan": [
+        { "codigo": "T293 00R", "sentido": "Retorno" },
+        { "codigo": "T293 00I", "sentido": "Ida" }
+      ]
+    },
+        {
+      "servicio": "B09",
+      "apoyan": [
+        { "codigo": "T1597 00I", "sentido": "Ida" }
+      ]
+    },
+        {
+      "servicio": "F09",
+      "apoyan": [
+        { "codigo": "T1096 00I", "sentido": "Ida" },
+        { "codigo": "T1096 00R", "sentido": "Retorno" }
+      ]
+    },
+        {
+      "servicio": "B29",
+      "apoyan": [
+        { "codigo": "T1599 00I", "sentido": "Ida" }
+      ]
+    },
+        {
+      "servicio": "102",
+      "apoyan": [
+        { "codigo": "T1996 00I", "sentido": "Ida" },
+        { "codigo": "T1996 00R", "sentido": "Retorno" }
+      ]
     }
+
+        
   ]
 }
