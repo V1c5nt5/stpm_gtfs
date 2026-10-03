@@ -85,6 +85,15 @@
         }
       ]
     },
+        {
+      "servicio": "B18e",
+      "apoyan": [
+        {
+          "codigo": "394",
+          "sentido": "Ida"
+        }
+      ]
+    },
     {
       "servicio": "B19",
       "apoyan": [
@@ -98,8 +107,8 @@
       "servicio": "B25",
       "apoyan": [
         {
-          "codigo": "",
-          "sentido": ""
+          "codigo": "T1194 00I",
+          "sentido": "Ida"
         }
       ]
     },
@@ -130,6 +139,24 @@
         }
       ]
     },
+                {
+      "servicio": "B32",
+      "apoyan": [
+        {
+          "codigo": "T1893 00I",
+          "sentido": "Ida"
+        }
+      ]
+    },
+                    {
+      "servicio": "B08",
+      "apoyan": [
+        {
+          "codigo": "T1892 00I",
+          "sentido": "Ida"
+        }
+      ]
+    },
         {
       "servicio": "B37",
       "apoyan": [
@@ -143,8 +170,8 @@
       "servicio": "B33", 
       "apoyan": [
         {
-          "codigo": "",
-          "sentido": ""
+          "codigo": "T1395 00I",
+          "sentido": "Ida"
         }
       ]
     },
