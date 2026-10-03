@@ -1,52 +1,134 @@
 {
-  "_ayuda": "servicio = CODIGO_USUARIO del servicio apoyado. apoyan[].codigo = codigo del bus que apoya (T1590 o T1590 00I). sentido = Ida o Regreso (obligatorio). Opcionales: en (Ida/Regreso, pestaña del servicio apoyado; por defecto = sentido), operadora (ej. U15; por defecto sale del codigo: T1590 -> U15, T293 -> U2), activo:false para desactivar un servicio sin borrarlo.",
+  "_ayuda": "servicio = CODIGO_USUARIO del servicio apoyado. apoyan[].codigo = codigo del bus que apoyan (T1590 o T1590 00I). sentido = Ida o Regreso (obligatorio). Opcionales: en (Ida/Regreso, pestaña del servicio apoyado; por defecto = sentido), operadora (ej. U15; por defecto sale del codigo: T1590 -> U15, T293 -> U2), activo:false para desactivar un servicio sin borrarlo.",
   "apoyos": [
     {
-      "servicio": "B03",
+      "servicio": "102",
       "apoyan": [
-        { "codigo": "T1590 00I", "sentido": "Ida" }
+        {
+          "codigo": "T1996 00I",
+          "sentido": "Ida"
+        },
+        {
+          "codigo": "T1996 00R",
+          "sentido": "Retorno"
+        }
+      ]
+    },
+    {
+      "servicio": "105",
+      "apoyan": [
+        {
+          "codigo": "T293 00R",
+          "sentido": "Retorno"
+        },
+        {
+          "codigo": "T293 00I",
+          "sentido": "Ida"
+        }
       ]
     },
     {
       "servicio": "105c",
       "apoyan": [
-        { "codigo": "294x", "sentido": "Retorno" }
+        {
+          "codigo": "294x",
+          "sentido": "Retorno"
+        }
       ]
     },
-        {
-      "servicio": "105",
+    {
+      "servicio": "B02",
       "apoyan": [
-        { "codigo": "T293 00R", "sentido": "Retorno" },
-        { "codigo": "T293 00I", "sentido": "Ida" }
+        {
+          "codigo": "",
+          "sentido": ""
+        }
       ]
     },
+    {
+      "servicio": "B03",
+      "apoyan": [
         {
+          "codigo": "T1590 00I",
+          "sentido": "Ida"
+        }
+      ]
+    },
+    {
+      "servicio": "B04",
+      "apoyan": [
+        {
+          "codigo": "",
+          "sentido": ""
+        }
+      ]
+    },
+    {
       "servicio": "B09",
       "apoyan": [
-        { "codigo": "T1597 00I", "sentido": "Ida" }
+        {
+          "codigo": "T1597 00I",
+          "sentido": "Ida"
+        }
       ]
     },
-        {
-      "servicio": "F09",
+    {
+      "servicio": "B18",
       "apoyan": [
-        { "codigo": "T1096 00I", "sentido": "Ida" },
-        { "codigo": "T1096 00R", "sentido": "Retorno" }
+        {
+          "codigo": "",
+          "sentido": ""
+        }
       ]
     },
+    {
+      "servicio": "B19",
+      "apoyan": [
         {
+          "codigo": "",
+          "sentido": ""
+        }
+      ]
+    },
+    {
+      "servicio": "B25",
+      "apoyan": [
+        {
+          "codigo": "",
+          "sentido": ""
+        }
+      ]
+    },
+    {
       "servicio": "B29",
       "apoyan": [
-        { "codigo": "T1599 00I", "sentido": "Ida" }
+        {
+          "codigo": "T1599 00I",
+          "sentido": "Ida"
+        }
       ]
     },
-        {
-      "servicio": "102",
+    {
+      "servicio": "B33", 
       "apoyan": [
-        { "codigo": "T1996 00I", "sentido": "Ida" },
-        { "codigo": "T1996 00R", "sentido": "Retorno" }
+        {
+          "codigo": "",
+          "sentido": ""
+        }
+      ]
+    },
+    {
+      "servicio": "F09",
+      "apoyan": [
+        {
+          "codigo": "T1096 00I",
+          "sentido": "Ida"
+        },
+        {
+          "codigo": "T1096 00R",
+          "sentido": "Retorno"
+        }
       ]
     }
-
-        
   ]
 }
