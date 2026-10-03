@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Monitor de Buses en Tiempo Real - Red Movilidad</title>
+<title>Monitor en Tiempo Real - Red Movilidad</title>
 <style>
   *{box-sizing:border-box}
   /* FIX #1: sin esto, display:flex/grid de las clases anula el atributo [hidden]
@@ -28,6 +28,7 @@
   .brand-dot{width:10px;height:10px;border-radius:3px;background:#d81e05}
   header h1{font-size:14.5px;font-weight:600;margin:0;letter-spacing:-.01em}
   header .spacer{flex:1}
+  #file-name .gps-bad{color:#d81e05;font-weight:700}
   #file-name{font-size:12px;color:#86868b;max-width:560px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .file-btn{
     display:inline-flex;align-items:center;gap:6px;
@@ -147,6 +148,11 @@
   }
   .bus-tip.leaflet-tooltip-top:before{border-top-color:#1a1a1c}
   .group-sep.cont{color:#a37c00}
+  .route-item.unc{cursor:default;user-select:none}
+  .route-item.unc:hover{background:transparent}
+  .route-item.unc .route-dest{color:#c25e00;font-style:italic}
+  .route-item.cont .route-sub,.route-item.unc .route-sub{white-space:normal;line-height:1.35}
+  .detail-sub{white-space:normal}
 
   .detail-body{flex:1;overflow-y:auto;padding:16px 20px 48px}
   .detail-body::-webkit-scrollbar{width:10px}
@@ -245,7 +251,9 @@
     .layout{flex-direction:column}
     .sidebar{width:100%;border-right:none;border-bottom:1px solid #e3e3e6;max-height:42vh}
     .map-wrap{height:240px}
-    #file-name{display:none}
+    #file-name{max-width:46vw;font-size:11px}
+    header{padding:0 12px;gap:8px}
+    header h1{font-size:13px}
   }
 </style>
 </head>
@@ -254,7 +262,7 @@
 <header>
   <div class="brand">
     <span class="brand-dot"></span>
-    <h1>Visualizador GTFS · Red Movilidad</h1>
+    <h1>Monitor en Tiempo Real - Red Movilidad</h1>
   </div>
   <div class="spacer"></div>
   <span id="file-name"></span>
@@ -797,7 +805,7 @@ async function parseGTFS(data, name){
   $('search').value = '';
   const dk = g.deco ? decoKey(g.deco.name) : '';
   const decoTxt = g.deco ? 'DECO ' + dk.slice(6, 8) + '-' + dk.slice(4, 6) + '-' + dk.slice(0, 4) : 'sin DECO';
-  state.fileLabel = prettyGTFSName(name) + ' · ' + decoTxt;
+  state.fileLabel = APP_VERSION;
   renderFileLabel();
   $('file-name').title = name + (g.deco ? ' + ' + g.deco.name : ' (DECO no disponible)');
 
@@ -812,10 +820,10 @@ const OTHER_GROUP = 'Otros recorridos';
 function groupRank(name){
   const n = norm(name);
   if (name === OTHER_GROUP) return 99;
-  if (/metro de santiago/.test(n)) return 0;
-  if (/\befe\b|trenes de chile|metrotren/.test(n)) return 1;
-  if (/acercamiento|aeropuerto/.test(n)) return 2;
-  if (/red metropolitana/.test(n)) return 3;
+  if (/red metropolitana/.test(n)) return 0;
+  if (/metro de santiago/.test(n)) return 1;
+  if (/\befe\b|trenes de chile|metrotren/.test(n)) return 2;
+  if (/acercamiento|aeropuerto/.test(n)) return 3;
   return 10;
 }
 
@@ -882,7 +890,19 @@ function buildIndexes(g){
   );
 }
 
-const INJ_TITLE = 'Recorrido Inyección / Sin Identificación';
+// Título según cómo termina el código: y / y1 / y2 → inyección · x → especial · otro → sin información
+const APOYO_TITLE = 'Servicio de Apoyo';
+// T + operador (1 o 2 dígitos) + 9 + 1 dígito: T293, T1290, T1590, T1996… (con o sin variante "00I")
+function isApoyoCode(code){
+  return /^T\d{1,2}9\d$/i.test(stripVar(code));
+}
+function injTitle(code){
+  const c = String(code == null ? '' : code).trim();
+  if (isApoyoCode(c)) return APOYO_TITLE;
+  if (/y[12]?$/i.test(c)) return 'Servicio de Inyección';
+  if (/x2?$/i.test(c)) return 'Servicio Especial';
+  return 'Sin Información';
+}
 const NO_MATCH  = 'SIN MATCH';
 const NO_OP     = '(Sin operadora)';
 const lc = v => (v == null ? '' : String(v)).trim().toLowerCase();
@@ -940,10 +960,10 @@ function applyDeco(g){
       const r = {
         route_id: '__inj:' + lc(e.code) + '|' + op,
         route_short_name: e.code,
-        route_long_name: INJ_TITLE,
+        route_long_name: injTitle(e.code),
         route_color: '9A9AA0', route_text_color: 'FFFFFF',
         __inj: true, __agency: g.groups[rm], __group: rm, __subs: [op],
-        __search: norm(e.code + ' ' + INJ_TITLE + ' ' + g.groups[rm])
+        __search: norm(e.code + ' ' + injTitle(e.code) + ' ' + g.groups[rm])
       };
       g.routes.push(r); g.routesById.set(r.route_id, r);
       inj++;
@@ -952,8 +972,14 @@ function applyDeco(g){
   g.decoStats = { inj, noMatch: g.routes.filter(r => r.__subs && r.__subs[0] === NO_MATCH).length };
 }
 
+// Orden de las categorías: 1 PLAN CONTINGENCIA RED (-1) · 2 SIN MATCH (-0.5) · 3 Red Metropolitana (0) · Metro · EFE · Acercamiento
+const SM_GROUP = -0.5;
+const SM_TITLE = 'SIN MATCH (CÓDIGOS SIN REGISTRO)';
+function eg(e){ return (e.sub === NO_MATCH && !e.r.__unc) ? SM_GROUP : e.r.__group; }
+
 const entryCmp = (a, b) =>
-  (a.r.__group - b.r.__group) ||
+  (eg(a) - eg(b)) ||
+  ((a.r.__unc ? 1 : 0) - (b.r.__unc ? 1 : 0)) ||
   (subRank(a.sub) - subRank(b.sub)) ||
   String(a.sub || '').localeCompare(String(b.sub || ''), 'es') ||
   ((TS_RE.test(b.label) ? 1 : 0) - (TS_RE.test(a.label) ? 1 : 0)) ||
@@ -992,7 +1018,9 @@ function renderResults(query){
   const g = state.gtfs;
   if (!g) return;
   const q = norm(query);
-  const list = q ? g.entries.filter(e => e.search.includes(q)) : g.entries;
+  const inCont = e => e.sub === NO_MATCH && g.contCodes && (g.contCodes.has(lc(e.label)) || g.contCodes.has(lc(e.r.route_short_name)));
+  const base = g.entries.filter(e => !inCont(e));
+  const list = q ? base.filter(e => e.search.includes(q)) : base;
 
   const uniq = new Set(list.map(e => e.r.route_id)).size;
   $('count').textContent = uniq.toLocaleString('es') + (uniq === 1 ? ' recorrido' : ' recorridos');
@@ -1007,27 +1035,28 @@ function renderResults(query){
 
   const subCount = new Map();
   for (const e of list){
-    if (e.sub != null){ const k = e.r.__group + '|' + e.sub; subCount.set(k, (subCount.get(k) || 0) + 1); }
+    if (e.sub != null && e.sub !== NO_MATCH){ const k = e.r.__group + '|' + e.sub; subCount.set(k, (subCount.get(k) || 0) + 1); }
   }
 
   const frag = document.createDocumentFragment();
-  let lastGroup = -1, lastSub;
+  let lastGroup = null, lastSub;
 
   for (const e of list){
     const r = e.r;
-    if (r.__group !== lastGroup){
-      lastGroup = r.__group; lastSub = undefined;
-      if (g.groupCount > 1){
+    const egv = eg(e);
+    if (egv !== lastGroup){
+      lastGroup = egv; lastSub = undefined;
+      if (g.groupCount > 1 || egv === CONT_GROUP || egv === SM_GROUP){
         const sep = document.createElement('div');
         sep.className = 'group-sep';
-        sep.textContent = lastGroup === CONT_GROUP ? CONT_TITLE : g.groups[lastGroup];
-        if (lastGroup === CONT_GROUP) sep.classList.add('cont');
+        sep.textContent = egv === CONT_GROUP ? CONT_TITLE : egv === SM_GROUP ? SM_TITLE : g.groups[egv];
+        if (egv === CONT_GROUP) sep.classList.add('cont');
         frag.appendChild(sep);
       }
     }
     if (e.sub !== lastSub){
       lastSub = e.sub;
-      if (e.sub != null){
+      if (e.sub != null && e.sub !== NO_MATCH){
         const sep = document.createElement('div');
         sep.className = 'sub-sep' + (e.sub === NO_MATCH ? ' nomatch' : '');
         sep.style.borderLeftColor = g.subColor.get(r.__group + '|' + e.sub) || DEFAULT_COLOR;
@@ -1041,10 +1070,10 @@ function renderResults(query){
 
     let dest, subTxt;
     if (r.__inj){
-      dest = INJ_TITLE; subTxt = 'Sin datos en el GTFS';
+      dest = r.route_long_name; subTxt = '';
     } else if (r.__live){
-      dest = r.__ts ? TS_TITLE : LIVE_TITLE;
-      subTxt = r.__ts ? '' : 'Sin datos en el DECO ni en el GTFS';
+      dest = r.__ts ? TS_TITLE : r.route_long_name;
+      subTxt = r.__ts ? '' : (codeOperator(g, r.route_short_name) || 'Operador no identificado');
     } else {
       const hs = g.headsignsByRoute.get(r.route_id);
       dest = hs ? [...hs].slice(0, 2).join(' · ') : '';
@@ -1052,13 +1081,19 @@ function renderResults(query){
       subTxt = r.route_long_name || '';
     }
 
-    if (e.cont) subTxt = 'Apoyan: ' + e.cont.codes.join(' · ');
+    let subHtml = null;
+    if (r.__unc){
+      dest = 'Recorrido no confirmado'; subTxt = '';
+    }
+    if (e.cont && e.cont.items.length){
+      subHtml = 'Apoyan:<br>' + contLines(e.cont).map(escapeHtml).join('<br>');
+    }
 
     // Los "Recorrido Inyección / Sin Identificación" son solo informativos (no se pueden abrir),
     // salvo que tengan buses en tiempo real: ahí se abren para verlos.
-    const clickable = !r.__inj || !!(g.liveBy && g.liveBy.has(e.key));
+    const clickable = !r.__unc && (!r.__inj || !!(g.liveBy && g.liveBy.has(e.key)));
     const btn = document.createElement(clickable ? 'button' : 'div');
-    btn.className = 'route-item' + (clickable ? '' : ' inj') + (e.key === state.entryKey ? ' active' : '');
+    btn.className = 'route-item' + (r.__unc ? ' unc' : (clickable ? '' : ' inj')) + (e.cont ? ' cont' : '') + (e.key === state.entryKey ? ' active' : '');
     btn.dataset.id = r.route_id;
     btn.dataset.key = e.key;
     if (!clickable) btn.setAttribute('aria-disabled', 'true');
@@ -1068,7 +1103,7 @@ function renderResults(query){
       '</span>' +
       '<span class="route-text">' +
         '<span class="route-dest">' + escapeHtml(dest || '—') + '</span>' +
-        (subTxt ? '<span class="route-sub">' + escapeHtml(subTxt) + '</span>' : '') +
+        (subHtml ? '<span class="route-sub">' + subHtml + '</span>' : (subTxt ? '<span class="route-sub">' + escapeHtml(subTxt) + '</span>' : '')) +
       '</span>';
     if (clickable) btn.addEventListener('click', () => selectRoute(r.route_id, e));
     frag.appendChild(btn);
@@ -1341,7 +1376,8 @@ function renderDetail(){
     const ops = (state.sub && route.__subs.includes(state.sub)) ? [state.sub] : route.__subs;
     subTxt += (subTxt ? ' · ' : '') + ops.join(' / ');
   }
-  $('detail-sub').textContent = cont ? CONT_TITLE + ' · Apoyan: ' + cont.codes.join(' · ') : subTxt;
+  if (route.__live && !route.__ts) subTxt = codeOperator(g, route.route_short_name) || 'Operador no identificado';
+  $('detail-sub').textContent = cont ? CONT_TITLE + ' · Apoyan: ' + contLines(cont).join(' · ') : subTxt;
 
   const trips = g.tripsByRoute.get(route.route_id) || [];
 
@@ -1652,9 +1688,11 @@ async function drawMap(points, stops, color, stopsEl){
    El sentido sale de route_direction (o del sufijo I/R del código) y se muestra en Ida / Regreso.
    Todas las variantes del servicio (T1466 00I, T1466 03I…) caen en el mismo Ida/Regreso.
    ===================================================================== */
+const APP_VERSION = 'v1.0.3 · 02/10/26';
+const GPS_DOWN_MSG = 'Sin servicio GPS. Consultar más tarde';
 const LIVE_URL = 'https://velocidades.seguimos.cl/?all-buses-data=1';
 const LIVE_EVERY = 20000;   // ms entre actualizaciones
-const LIVE_TITLE = 'Recorrido sin informar (solo buses en tiempo real)';
+const LIVE_TITLE = 'Servicio Sin Registro';
 const TS_RE = /^T(\d+)TS$/i;
 const TS_TITLE = 'Transito a Servicio';
 const CONT_TITLE = 'PLAN CONTINGENCIA RED';
@@ -1776,11 +1814,26 @@ function opForCode(g, label, override){
   let n = null;
   if (override){ const m = /(\d+)/.exec(String(override)); if (m) n = m[1]; }
   if (n == null){
-    const m = /^T(\d{3,4})(?!\d)/i.exec(String(label).trim());
+    const m = /^T?(\d{3,4})(?!\d)/i.exec(String(label).trim());
     if (m) n = m[1].slice(0, -2);
   }
   return n ? opByNum(g, n) : null;
 }
+
+// Operador de un código según sus dígitos (T1590 → U15, T293 → U2, 294x → U2).
+// Devuelve el nombre completo del DECO; si no está, solo "U15"; si no hay dígitos, ''.
+function codeOperator(g, label){
+  const its = g.contSupBy && g.contSupBy.get(lc(stripVar(label)));
+  const ov = its && (its.find(i => i.op) || {}).op;
+  const full = opForCode(g, label, ov);
+  if (full) return full;
+  let n = null;
+  if (ov){ const m = /(\d+)/.exec(String(ov)); if (m) n = m[1]; }
+  if (n == null){ const m = /^T?(\d{3,4})(?!\d)/i.exec(String(label).trim()); if (m) n = m[1].slice(0, -2); }
+  return n ? 'U' + n : '';
+}
+
+const LIVE_INFO_MSG = 'Estamos recopilando más información sobre este recorrido...';
 
 // Recorrido "sin informar": existe en el seguimiento de buses pero no en el DECO ni en el GTFS.
 // TxTS → "Transito a Servicio" dentro de su operadora. Código de apoyo de contingencia → su operadora.
@@ -1792,7 +1845,7 @@ function liveEntry(g, label){
     if (its) sub = opForCode(g, label, (its.find(i => i.op) || {}).op);
   }
   sub = sub || NO_MATCH;
-  const title = m ? TS_TITLE : LIVE_TITLE;
+  const title = m ? TS_TITLE : (isApoyoCode(label) ? APOYO_TITLE : LIVE_TITLE);
   const rid = '__live:' + lc(label) + '|' + sub;
   let e = g.liveEntries.get(rid);
   if (e) return e;
@@ -2019,7 +2072,7 @@ function renderLiveOnly(route, fresh){
   // Transito a Servicio (TxTS): sin mensaje ni recuadro de paraderos
   $('stops').hidden = !!route.__ts;
   $('stops').innerHTML = route.__ts ? '' : '<div class="stop-row">' + escapeHtml(route.__live
-    ? 'Este código aparece en el seguimiento de buses, pero no está informado en el DECO ni en el GTFS: solo se muestran los buses en tiempo real.'
+    ? LIVE_INFO_MSG
     : route.__inj
       ? 'Este código existe en el DECO, pero no coincide con ningún recorrido del GTFS cargado: solo se muestran los buses en tiempo real.'
       : 'Sin viajes registrados para este recorrido: solo se muestran los buses en tiempo real.') + '</div>';
@@ -2052,14 +2105,15 @@ function refreshDetailBuses(){
 
 function renderFileLabel(){
   const g = state.gtfs;
-  let t = state.fileLabel || '';
-  if (g && g.liveAt){
-    t += ' · ' + g.liveTotal.toLocaleString('es') + ' buses · ' +
-         new Date(g.liveAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
-  } else if (state.liveErr){
-    t += ' · buses: sin conexión';
+  const el = $('file-name');
+  let t = escapeHtml(state.fileLabel || APP_VERSION);
+  const down = state.liveErr || (g && g.liveAt && g.liveTotal <= 1);
+  if (down){
+    t += ' · <span class="gps-bad">' + GPS_DOWN_MSG + '</span>';
+  } else if (g && g.liveAt){
+    t += ' · GPS ' + new Date(g.liveAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
   }
-  $('file-name').textContent = t;
+  el.innerHTML = t;
 }
 
 async function pollLive(){
@@ -2071,7 +2125,7 @@ async function pollLive(){
     applyLive(feats);
   } catch (e){
     console.warn('Buses en tiempo real:', e);
-    if (!(state.gtfs && state.gtfs.liveAt)){ state.liveErr = true; renderFileLabel(); }
+    state.liveErr = true; renderFileLabel();
   } finally { liveBusy = false; }
 }
 
@@ -2106,12 +2160,14 @@ function parseCont(cfg){
   for (const it of list){
     if (!it || it.activo === false) continue;
     const servicio = String(it.servicio == null ? '' : it.servicio).trim();
-    if (!servicio || !Array.isArray(it.apoyan)) continue;
+    if (!servicio) continue;
     const apoyan = [], codes = [];
-    for (const a of it.apoyan){
+    let hadCode = false;
+    for (const a of (Array.isArray(it.apoyan) ? it.apoyan : [])){
       const o = (typeof a === 'string') ? { codigo: a } : (a || {});
       const codigo = String(o.codigo == null ? '' : o.codigo).trim();
       if (!codigo) continue;
+      hadCode = true;
       const sfx = codigo.match(/\s+\d\d([IR])$/i);
       const dir = dirTxt(o.sentido) || (sfx ? sfx[1].toUpperCase() : '');
       if (!dir){ console.warn('contingencia.json: falta "sentido" (Ida/Regreso) para ' + codigo); continue; }
@@ -2120,6 +2176,7 @@ function parseCont(cfg){
       codes.push(codigo);
     }
     if (apoyan.length) out.push({ servicio, apoyan, codes });
+    else if (!hadCode) out.push({ servicio, apoyan: [], codes: [], pending: true });   // sin códigos = no confirmado
   }
   return out;
 }
@@ -2139,33 +2196,62 @@ async function loadCont(){
   }
 }
 
-// Crea la sección "PLAN CONTINGENCIA RED": un ítem amarillo por servicio apoyado
+const CONT_UNC_COLOR = 'F57C00';
+
+// Código de apoyo + empresa (nombre completo): "T1590 00I · U15 - Nombre de la operadora"
+function contLines(c){
+  return c.items.map(it => it.codigo + (it.empresa ? ' · ' + it.empresa : ''));
+}
+
+// Crea la sección "PLAN CONTINGENCIA RED": un ítem amarillo por servicio apoyado.
+// Servicios del json que no existen en el DECO/GTFS (no confirmados) → ítem naranjo, no seleccionable.
 function applyCont(g, cfg){
   if (g.contEntries) for (const e of g.contEntries.values()){
     const i = g.entries.indexOf(e); if (i >= 0) g.entries.splice(i, 1);
   }
-  g.contEntries = new Map(); g.contSupBy = new Map();
+  g.contEntries = new Map(); g.contSupBy = new Map(); g.contCodes = new Set();
   // Los recorridos sin informar se re-crean (con la operadora que corresponda a los códigos de apoyo)
   for (const e of [...g.liveEntries.values()]) dropLive(g, e);
 
   for (const sv of parseCont(cfg)){
     const list = g.entriesByUser.get(lc(sv.servicio)) || [];
     const base = list.find(e => !e.r.__inj) || list[0];
-    if (!base){ console.warn('contingencia.json: el servicio ' + sv.servicio + ' no existe en el DECO/GTFS'); continue; }
-    const key = 'cont:' + lc(sv.servicio) + '|';
+    const unc = sv.pending || !base;
+    const key = (unc ? 'cont-unc:' : 'cont:') + lc(sv.servicio) + '|';
+    const items = sv.apoyan.map(a => {
+      const empresa = opForCode(g, a.codigo, a.op) ||
+        (() => { const m = /^T(\d{3,4})(?!\d)/i.exec(a.codigo) || null; const n = a.op ? (/(\d+)/.exec(a.op) || [])[1] : (m ? m[1].slice(0, -2) : null); return n ? 'U' + n : ''; })();
+      return { codigo: a.codigo, empresa };
+    });
+    g.contCodes.add(lc(sv.servicio));
+    for (const a of sv.apoyan) g.contCodes.add(a.base);
     let e = g.contEntries.get(key);
     if (e){
-      e.cont.codes.push(...sv.codes);
+      e.cont.codes.push(...sv.codes); e.cont.items.push(...items);
+    } else if (unc){
+      const r = {
+        route_id: '__unc:' + lc(sv.servicio), route_short_name: sv.servicio,
+        route_long_name: 'Recorrido no confirmado',
+        route_color: CONT_UNC_COLOR, route_text_color: 'FFFFFF',
+        __unc: true, __group: CONT_GROUP, __agency: CONT_TITLE, __subs: [null]
+      };
+      const lbl = (base && base.label) || sv.servicio;
+      r.route_short_name = lbl;
+      e = { r, sub: null, label: lbl, key,
+            search: norm(CONT_TITLE + ' ' + lbl + ' recorrido no confirmado'),
+            cont: { servicio: sv.servicio, codes: [...sv.codes], items: [...items], baseEntries: [] } };
+      g.contEntries.set(key, e);
+      g.entries.push(e);
     } else {
       const r = Object.create(base.r);
       r.route_color = 'FFD000'; r.route_text_color = '1A1A1C'; r.__group = CONT_GROUP;
       e = { r, sub: null, label: base.label, key,
             search: norm(CONT_TITLE + ' ' + base.label + ' ' + base.r.__search),
-            cont: { servicio: sv.servicio, codes: [...sv.codes], baseEntries: list } };
+            cont: { servicio: sv.servicio, codes: [...sv.codes], items: [...items], baseEntries: list } };
       g.contEntries.set(key, e);
       g.entries.push(e);
     }
-    e.search += ' ' + norm(sv.codes.join(' '));
+    e.search += ' ' + norm(sv.codes.join(' ')) + ' ' + norm(items.map(i => i.empresa).join(' '));
     for (const a of sv.apoyan){
       let arr = g.contSupBy.get(a.base);
       if (!arr){ arr = []; g.contSupBy.set(a.base, arr); }
