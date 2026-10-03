@@ -130,6 +130,15 @@
         }
       ]
     },
+        {
+      "servicio": "B20",
+      "apoyan": [
+        {
+          "codigo": "T1598 00I",
+          "sentido": "Ida"
+        }
+      ]
+    },
             {
       "servicio": "B36",
       "apoyan": [
