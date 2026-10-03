@@ -40,8 +40,8 @@
       "servicio": "B02",
       "apoyan": [
         {
-          "codigo": "",
-          "sentido": ""
+          "codigo": "T1195 00I",
+          "sentido": "Ida"
         }
       ]
     },
@@ -58,8 +58,8 @@
       "servicio": "B04",
       "apoyan": [
         {
-          "codigo": "",
-          "sentido": ""
+          "codigo": "T1393 00I",
+          "sentido": "Ida"
         }
       ]
     },
@@ -76,8 +76,12 @@
       "servicio": "B18",
       "apoyan": [
         {
-          "codigo": "",
-          "sentido": ""
+          "codigo": "T1193 00I",
+          "sentido": "Ida"
+        },
+                {
+          "codigo": "T1193 00R",
+          "sentido": "Retorno"
         }
       ]
     },
@@ -99,11 +103,38 @@
         }
       ]
     },
+        {
+      "servicio": "B26",
+      "apoyan": [
+        {
+          "codigo": "T395 06I",
+          "sentido": "Ida"
+        }
+      ]
+    },
     {
       "servicio": "B29",
       "apoyan": [
         {
           "codigo": "T1599 00I",
+          "sentido": "Ida"
+        }
+      ]
+    },
+            {
+      "servicio": "B36",
+      "apoyan": [
+        {
+          "codigo": "T396 00I",
+          "sentido": "Ida"
+        }
+      ]
+    },
+        {
+      "servicio": "B37",
+      "apoyan": [
+        {
+          "codigo": "T397 00I",
           "sentido": "Ida"
         }
       ]
@@ -117,6 +148,15 @@
         }
       ]
     },
+        {
+      "servicio": "B46", 
+      "apoyan": [
+        {
+          "codigo": "T1826 00I",
+          "sentido": "Ida"
+        }
+      ]
+    },
     {
       "servicio": "F09",
       "apoyan": [
@@ -126,6 +166,19 @@
         },
         {
           "codigo": "T1096 00R",
+          "sentido": "Retorno"
+        }
+      ]
+    },
+        {
+      "servicio": "712",
+      "apoyan": [
+        {
+          "codigo": "T1997 06I",
+          "sentido": "Ida"
+        },
+        {
+          "codigo": "T1997 06R",
           "sentido": "Retorno"
         }
       ]
