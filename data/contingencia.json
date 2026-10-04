@@ -1,8 +1,9 @@
 {
-  "_ayuda": "servicio = CODIGO_USUARIO del servicio apoyado. apoyan[].codigo = codigo del bus que apoyan (T1590 o T1590 00I). sentido = Ida o Regreso (obligatorio). Opcionales: en (Ida/Regreso, pestaña del servicio apoyado; por defecto = sentido), operadora (ej. U15; por defecto sale del codigo: T1590 -> U15, T293 -> U2), activo:false para desactivar un servicio sin borrarlo.",
+  "_ayuda": "servicio = CODIGO_USUARIO del servicio apoyado. apoyo = true/false (por defecto true): si es false NO es servicio de apoyo y solo se ve en el listado normal (no aparece en PLAN CONTINGENCIA RED); util para DECOs que aun no se publican. apoyan[].codigo = codigo del bus que apoyan (T1590 o T1590 00I). sentido = Ida o Regreso (obligatorio). Opcionales: en (Ida/Regreso, pestaña del servicio apoyado; por defecto = sentido), operadora (ej. U15; por defecto sale del codigo: T1590 -> U15, T293 -> U2), activo:false para desactivar un servicio sin borrarlo.",
   "apoyos": [
     {
       "servicio": "102",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1996 00I",
@@ -16,6 +17,7 @@
     },
     {
       "servicio": "105",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T293 00R",
@@ -29,6 +31,7 @@
     },
     {
       "servicio": "105c",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "294x",
@@ -38,6 +41,7 @@
     },
     {
       "servicio": "B02",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1195 00I",
@@ -47,6 +51,7 @@
     },
     {
       "servicio": "B03",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1590 00I",
@@ -56,6 +61,7 @@
     },
     {
       "servicio": "B04",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1393 00I",
@@ -65,6 +71,7 @@
     },
     {
       "servicio": "B09",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1597 00I",
@@ -74,19 +81,21 @@
     },
     {
       "servicio": "B18",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1193 00I",
           "sentido": "Ida"
         },
-                {
+        {
           "codigo": "T1193 00R",
           "sentido": "Retorno"
         }
       ]
     },
-        {
+    {
       "servicio": "B18e",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "394",
@@ -96,6 +105,7 @@
     },
     {
       "servicio": "B19",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1394 00R",
@@ -105,6 +115,7 @@
     },
     {
       "servicio": "B25",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1194 00I",
@@ -112,8 +123,9 @@
         }
       ]
     },
-        {
+    {
       "servicio": "B26",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T395 06I",
@@ -123,6 +135,7 @@
     },
     {
       "servicio": "B29",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1599 00I",
@@ -130,8 +143,9 @@
         }
       ]
     },
-        {
+    {
       "servicio": "B20",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1598 00I",
@@ -139,8 +153,9 @@
         }
       ]
     },
-            {
+    {
       "servicio": "B36",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T396 00I",
@@ -148,8 +163,9 @@
         }
       ]
     },
-                {
+    {
       "servicio": "B32",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1893 00I",
@@ -157,8 +173,9 @@
         }
       ]
     },
-                    {
+    {
       "servicio": "B08",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1892 00I",
@@ -166,8 +183,9 @@
         }
       ]
     },
-        {
+    {
       "servicio": "B37",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T397 00I",
@@ -176,7 +194,8 @@
       ]
     },
     {
-      "servicio": "B33", 
+      "servicio": "B33",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1395 00I",
@@ -184,8 +203,9 @@
         }
       ]
     },
-        {
-      "servicio": "B46", 
+    {
+      "servicio": "B46",
+      "apoyo": false,
       "apoyan": [
         {
           "codigo": "T1826 00I",
@@ -195,6 +215,7 @@
     },
     {
       "servicio": "F09",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1096 00I",
@@ -206,8 +227,9 @@
         }
       ]
     },
-        {
+    {
       "servicio": "712",
+      "apoyo": true,
       "apoyan": [
         {
           "codigo": "T1997 06I",
