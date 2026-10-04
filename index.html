@@ -121,9 +121,17 @@
     overflow:hidden;background:#f5f5f7;position:relative;
   }
   .empty{
-    display:flex;align-items:center;justify-content:center;
-    height:100%;color:#a0a0a6;font-size:13.5px;padding:24px;text-align:center;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+    height:100%;color:#a0a0a6;font-size:13.5px;padding:24px;text-align:center;overflow:auto;
   }
+  .changelog{
+    width:100%;max-width:440px;background:#fff;border:1px solid #e3e3e6;border-radius:10px;
+    padding:14px 18px;text-align:left;color:#3a3a3c;font-size:12.5px;line-height:1.45;
+  }
+  .changelog h4{margin:0 0 8px;font-size:12px;font-weight:700;color:#1d1d1f;letter-spacing:.2px}
+  .changelog h4 span{font-weight:500;color:#86868b}
+  .changelog ul{margin:0;padding-left:18px}
+  .changelog li{margin:3px 0}
   .detail-inner{flex:1;display:flex;flex-direction:column;min-height:0}
 
   .detail-head{
@@ -290,7 +298,10 @@
   </aside>
 
   <main class="detail">
-    <div class="empty" id="detail-empty">Selecciona un recorrido de la lista</div>
+    <div class="empty" id="detail-empty">
+      <div>Selecciona un recorrido de la lista</div>
+      <div class="changelog" id="changelog" hidden></div>
+    </div>
 
     <div class="detail-inner" id="detail-inner" hidden>
       <div class="detail-head">
@@ -654,6 +665,7 @@ function showLoadError(msg){
 let loading = false;
 let decoPromise = null;
 let contPromise = null;
+let versionPromise = null;
 async function autoLoad(){
   if (loading) return;
   loading = true;
@@ -662,6 +674,7 @@ async function autoLoad(){
     const { gtfs, deco } = await discoverAll();
     decoPromise = loadDeco(deco.slice(0, 2));      // se descarga en paralelo con el GTFS
     contPromise = loadCont();                      // contingencia.json (opcional)
+    versionPromise = loadVersion();                // version.json (opcional)
     const cands = gtfs.slice(0, MAX_TRIES);
     if (!cands.length) throw new Error('No hay archivos GTFS_*.zip en la carpeta /data del repositorio.');
     let lastErr = null;
@@ -788,6 +801,7 @@ async function parseGTFS(data, name){
   showOverlay('Cruzando con el DECO…');
   g.deco = decoPromise ? await decoPromise : null;
   { const c = contPromise ? await contPromise : null; g.contCfg = c ? c.cfg : null; contSig = c ? c.sig : null; }
+  { const v = versionPromise ? await versionPromise : null; state.version = v; renderChangelog(v); }
   showOverlay('Indexando datos…');
   await nextFrame();
   buildIndexes(g);
@@ -805,7 +819,7 @@ async function parseGTFS(data, name){
   $('search').value = '';
   const dk = g.deco ? decoKey(g.deco.name) : '';
   const decoTxt = g.deco ? 'DECO ' + dk.slice(6, 8) + '-' + dk.slice(4, 6) + '-' + dk.slice(0, 4) : 'sin DECO';
-  state.fileLabel = APP_VERSION;
+  state.fileLabel = versionLabel(state.version);
   renderFileLabel();
   $('file-name').title = name + (g.deco ? ' + ' + g.deco.name : ' (DECO no disponible)');
 
@@ -1073,7 +1087,7 @@ function renderResults(query){
       dest = r.route_long_name; subTxt = '';
     } else if (r.__live){
       dest = r.__ts ? TS_TITLE : r.route_long_name;
-      subTxt = r.__ts ? '' : (codeOperator(g, r.route_short_name) || 'Operador no identificado');
+      subTxt = r.__ts ? '' : (r.__own ? e.sub : (codeOperator(g, r.route_short_name) || 'Operador no identificado'));
     } else {
       const hs = g.headsignsByRoute.get(r.route_id);
       dest = hs ? [...hs].slice(0, 2).join(' · ') : '';
@@ -1376,7 +1390,7 @@ function renderDetail(){
     const ops = (state.sub && route.__subs.includes(state.sub)) ? [state.sub] : route.__subs;
     subTxt += (subTxt ? ' · ' : '') + ops.join(' / ');
   }
-  if (route.__live && !route.__ts) subTxt = codeOperator(g, route.route_short_name) || 'Operador no identificado';
+  if (route.__live && !route.__ts) subTxt = route.__own ? route.__subs[0] : (codeOperator(g, route.route_short_name) || 'Operador no identificado');
   $('detail-sub').textContent = cont ? CONT_TITLE + ' · Apoyan: ' + contLines(cont).join(' · ') : subTxt;
 
   const trips = g.tripsByRoute.get(route.route_id) || [];
@@ -1688,7 +1702,32 @@ async function drawMap(points, stops, color, stopsEl){
    El sentido sale de route_direction (o del sufijo I/R del código) y se muestra en Ida / Regreso.
    Todas las variantes del servicio (T1466 00I, T1466 03I…) caen en el mismo Ida/Regreso.
    ===================================================================== */
-const APP_VERSION = 'v1.0.3 · 02/10/26';
+/* version.json (data/version.json): { "version": "v1.0.4", "fecha": "04/10/26", "cambios": ["...", "..."] }
+   Si el archivo no existe, no se muestra versión ni cambios. */
+async function loadVersion(){
+  try {
+    const r = await fetch(RAW_BASE + 'version.json', { cache: 'no-store' });
+    if (!r.ok) return null;
+    let txt = await r.text();
+    if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
+    const j = JSON.parse(txt);
+    return (j && typeof j === 'object') ? j : null;
+  } catch (e){ return null; }
+}
+function versionLabel(v){
+  if (!v) return '';
+  return [v.version, v.fecha].filter(Boolean).map(String).join(' · ');
+}
+function renderChangelog(v){
+  const el = $('changelog');
+  if (!el) return;
+  const list = v && Array.isArray(v.cambios) ? v.cambios.map(c => String(c).trim()).filter(Boolean) : [];
+  if (!list.length){ el.hidden = true; el.innerHTML = ''; return; }
+  const lbl = versionLabel(v);
+  el.innerHTML = '<h4>Principales cambios' + (lbl ? ' <span>· ' + escapeHtml(lbl) + '</span>' : '') + '</h4>' +
+    '<ul>' + list.map(c => '<li>' + escapeHtml(c) + '</li>').join('') + '</ul>';
+  el.hidden = false;
+}
 const GPS_DOWN_MSG = 'Sin servicio GPS. Consultar más tarde';
 const LIVE_URL = 'https://velocidades.seguimos.cl/?all-buses-data=1';
 const LIVE_EVERY = 20000;   // ms entre actualizaciones
@@ -1838,6 +1877,9 @@ const LIVE_INFO_MSG = 'Estamos recopilando más información sobre este recorrid
 // Recorrido "sin informar": existe en el seguimiento de buses pero no en el DECO ni en el GTFS.
 // TxTS → "Transito a Servicio" dentro de su operadora. Código de apoyo de contingencia → su operadora.
 function liveEntry(g, label){
+  // Código de un servicio con "apoyo": false en contingencia.json → recorrido manual dentro de su operadora
+  const own = g.contOwn && g.contOwn.get(lc(label));
+  if (own) return ownEntry(g, own);
   const m = TS_RE.exec(label);
   let sub = m ? tsSub(g, label) : null;
   if (!sub){
@@ -1863,6 +1905,50 @@ function liveEntry(g, label){
   g.entries.push(e);
   g.__liveAdded = true;
   return e;
+}
+
+// Servicio que aún no está en el DECO/GTFS pero se sabe a qué operadora pertenece (contingencia.json, apoyo:false):
+// se crea como un recorrido normal (nombre del servicio) dentro de su operadora, fuera de SIN MATCH.
+function ownEntry(g, own){
+  const sub = ownSub(g, own);
+  const label = own.servicio;
+  const rid = '__live:' + lc(label) + '|' + sub;
+  let e = g.liveEntries.get(rid);
+  if (e) return e;
+  const rm = g.groups.findIndex(x => /red metropolitana/.test(norm(x)));
+  const grp = rm >= 0 ? rm : 0;
+  const color = (g.subColor && g.subColor.get(grp + '|' + sub)) || '9A9AA0';
+  const r = {
+    route_id: rid, route_short_name: label, route_long_name: OWN_TITLE,
+    route_color: color, route_text_color: textColorFor(normalizeColor(color) || DEFAULT_COLOR),
+    __live: true, __own: true, __ts: false, __agency: g.groups[grp], __group: grp, __subs: [sub],
+    __search: norm(label + ' ' + own.codigo + ' ' + sub + ' ' + g.groups[grp])
+  };
+  e = { r, sub, label, key: rid + '|' + sub, search: r.__search + ' ' + norm(label) + ' ' + norm(sub) };
+  g.liveEntries.set(rid, e);
+  g.routes.push(r); g.routesById.set(rid, r);
+  g.entries.push(e);
+  g.__liveAdded = true;
+  return e;
+}
+const OWN_TITLE = 'Información en recopilación';
+// Operadora (nombre del DECO) de un servicio con apoyo:false: la de "operadora" o la del código (T1826 → U18)
+function ownSub(g, own){
+  const n = own.op ? (/(\d+)/.exec(String(own.op)) || [])[1] : null;
+  return opForCode(g, own.codigo, own.op) || (n ? 'U' + n : null) || ownOpNum(own.codigo) || NO_MATCH;
+}
+// Entradas del GTFS/DECO que corresponden al servicio de un código con apoyo:false (null si no existe en el GTFS)
+function ownGtfsEntries(g, own){
+  const list = (g.entriesByUser && g.entriesByUser.get(lc(own.servicio))) || [];
+  const es = list.filter(e => !e.r.__live && !e.cont);
+  if (!es.length) return null;
+  const sub = ownSub(g, own);
+  const f = es.filter(e => e.sub === sub);
+  return f.length ? f : es;
+}
+function ownOpNum(code){
+  const m = /^T?(\d{3,4})(?!\d)/i.exec(String(code).trim());
+  return m ? 'U' + m[1].slice(0, -2) : null;
 }
 
 // Un recorrido sin informar solo existe mientras tenga buses: se quita de la lista
@@ -1896,6 +1982,14 @@ function resolveEntries(g, rawCode){
     const f = op ? list.filter(e => e.sub === op) : [];
     return f.length ? f : list;
   };
+
+  // Código activado manualmente en contingencia.json (apoyo:false) y su servicio existe en el GTFS:
+  // el bus va a ese recorrido (con su GTFS completo), sin pasar por el DECO.
+  const own = g.contOwn && (g.contOwn.get(p) || g.contOwn.get(c));
+  if (own){
+    const es = ownGtfsEntries(g, own);
+    if (es){ push(es); return out; }
+  }
 
   const ix = g.decoIdx;
   if (ix){
@@ -2106,14 +2200,15 @@ function refreshDetailBuses(){
 function renderFileLabel(){
   const g = state.gtfs;
   const el = $('file-name');
-  let t = escapeHtml(state.fileLabel || APP_VERSION);
+  const parts = [];
+  if (state.fileLabel) parts.push(escapeHtml(state.fileLabel));
   const down = state.liveErr || (g && g.liveAt && g.liveTotal <= 1);
   if (down){
-    t += ' · <span class="gps-bad">' + GPS_DOWN_MSG + '</span>';
+    parts.push('<span class="gps-bad">' + GPS_DOWN_MSG + '</span>');
   } else if (g && g.liveAt){
-    t += ' · GPS ' + new Date(g.liveAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+    parts.push('GPS ' + new Date(g.liveAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }));
   }
-  el.innerHTML = t;
+  el.innerHTML = parts.join(' · ');
 }
 
 async function pollLive(){
@@ -2148,10 +2243,35 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && st
    - sentido  : "Ida" o "Regreso" (obligatorio; si el código termina en I/R, se usa ese)
    - en       : (opcional) pestaña del servicio apoyado donde se ve; por defecto = sentido
    - operadora: (opcional) "U15"; por defecto sale del código (T1590 → U15, T293 → U2)
+   - apoyo    : (opcional, por defecto true) false = NO es apoyo: el servicio no aparece en el
+                PLAN CONTINGENCIA RED. Los buses con ese código se asignan al servicio (ej. B46) y este
+                pasa a su operadora (la de \"operadora\" o la del código: T1826 → U18), no a SIN MATCH.
+                Si el servicio existe en el GTFS se usa toda su información (paraderos, horarios, GPS);
+                si no existe, se muestran solo los buses en tiempo real.
    - activo   : (opcional) false para desactivar un servicio sin borrarlo
    ===================================================================== */
 const CONT_EVERY = 120000;
 const dirTxt = v => { const t = lc(v); return t.startsWith('i') ? 'I' : t.startsWith('r') ? 'R' : ''; };
+
+// Servicios con "apoyo": false → { servicio, codigo (base), op } por cada código listado
+function parseOwn(cfg){
+  const list = Array.isArray(cfg) ? cfg : (cfg && (cfg.apoyos || cfg.contingencia));
+  const out = [];
+  if (!Array.isArray(list)) return out;
+  for (const it of list){
+    if (!it || it.activo === false) continue;
+    if (!(it.apoyo === false || /^(false|no)$/i.test(String(it.apoyo == null ? '' : it.apoyo).trim()))) continue;
+    const servicio = String(it.servicio == null ? '' : it.servicio).trim();
+    if (!servicio) continue;
+    for (const a of (Array.isArray(it.apoyan) ? it.apoyan : [])){
+      const o = (typeof a === 'string') ? { codigo: a } : (a || {});
+      const codigo = String(o.codigo == null ? '' : o.codigo).trim();
+      if (!codigo) continue;
+      out.push({ servicio, codigo: stripVar(codigo), op: o.operadora ? String(o.operadora).trim() : '' });
+    }
+  }
+  return out;
+}
 
 function parseCont(cfg){
   const list = Array.isArray(cfg) ? cfg : (cfg && (cfg.apoyos || cfg.contingencia));
@@ -2159,6 +2279,8 @@ function parseCont(cfg){
   if (!Array.isArray(list)) return out;
   for (const it of list){
     if (!it || it.activo === false) continue;
+    // apoyo:false → no es servicio de apoyo: no entra al PLAN CONTINGENCIA RED, solo se ve en el listado normal
+    if (it.apoyo === false || /^(false|no)$/i.test(String(it.apoyo == null ? '' : it.apoyo).trim())) continue;
     const servicio = String(it.servicio == null ? '' : it.servicio).trim();
     if (!servicio) continue;
     const apoyan = [], codes = [];
@@ -2210,6 +2332,26 @@ function applyCont(g, cfg){
     const i = g.entries.indexOf(e); if (i >= 0) g.entries.splice(i, 1);
   }
   g.contEntries = new Map(); g.contSupBy = new Map(); g.contCodes = new Set();
+  // Se deshacen los cambios de operadora de la vez anterior
+  if (g.ownMoved) for (const m of g.ownMoved){
+    m.e.sub = m.sub; m.e.key = m.key; m.e.search = m.search; m.e.r.__subs = m.subs;
+  }
+  g.ownMoved = [];
+  g.contOwn = new Map();
+  for (const o of parseOwn(cfg)) g.contOwn.set(lc(o.codigo), o);
+  // Servicios del GTFS sin operadora en el DECO (SIN MATCH) pero con operadora indicada en el json → a su operadora
+  const movedRoutes = new Set();
+  for (const o of g.contOwn.values()){
+    const sub = ownSub(g, o);
+    if (sub === NO_MATCH) continue;
+    for (const e of ((g.entriesByUser && g.entriesByUser.get(lc(o.servicio))) || [])){
+      if (e.r.__live || e.r.__inj || e.cont || e.sub !== NO_MATCH || movedRoutes.has(e)) continue;
+      movedRoutes.add(e);
+      g.ownMoved.push({ e, sub: e.sub, key: e.key, search: e.search, subs: e.r.__subs });
+      e.sub = sub; e.key = e.r.route_id + '|' + sub; e.r.__subs = [sub];
+      e.search += ' ' + norm(sub) + ' ' + norm(o.codigo);
+    }
+  }
   // Los recorridos sin informar se re-crean (con la operadora que corresponda a los códigos de apoyo)
   for (const e of [...g.liveEntries.values()]) dropLive(g, e);
 
