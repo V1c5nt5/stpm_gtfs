@@ -1,7 +1,9 @@
 {
-  "version": "v1.0.3.1",
+  "version": "v1.0.4",
   "fecha": "04/10/26",
   "cambios": [
-    "Ahora todas las actualizaciones y las modificaciones se veran aquí :)"
+    "Ahora puedes tocar un bus en el mapa para ver su información: tipo, tecnología, año y modelo.",
+    "Mejor organización de los recorridos según su operadora.",
+    "Mejoras en la información de los recorridos del plan de contingencia."
   ]
 }
