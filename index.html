@@ -132,6 +132,9 @@
   .changelog h4 span{font-weight:500;color:#86868b}
   .changelog ul{margin:0;padding-left:18px}
   .changelog li{margin:3px 0}
+  .bus-info{margin-top:6px;padding-top:6px;border-top:1px solid #e3e3e6;font-size:12px;line-height:1.5}
+  .bus-info span{color:#86868b;display:inline-block;min-width:76px}
+  .bus-info.none{color:#86868b}
   .detail-inner{flex:1;display:flex;flex-direction:column;min-height:0}
 
   .detail-head{
@@ -534,6 +537,10 @@ const REPO = { owner: 'V1c5nt5', repo: 'stpm_gtfs', branch: 'main', dir: 'data' 
 const RAW_BASE = 'https://raw.githubusercontent.com/' + REPO.owner + '/' + REPO.repo + '/' + REPO.branch + '/' + REPO.dir + '/';
 const GTFS_NAME_RE = /^GTFS_.*\.zip$/i;
 const KNOWN_GTFS = 'GTFS_20261003.zip';   // último recurso si no se puede listar la carpeta
+const REG_NAME_RE = /^REGISTRO_\d{2}_\d{2}_\d{2}\.json$/i;
+const KNOWN_REG = 'REGISTRO_04_10_26.json';   // último recurso si no se puede listar la carpeta
+// REGISTRO_DD_MM_AA.json → se compara como AAMMDD (el más nuevo primero)
+const regKey = name => { const m = name.match(/REGISTRO_(\d{2})_(\d{2})_(\d{2})/i); return m ? m[3] + m[2] + m[1] : '000000'; };
 const MAX_TRIES = 3;                      // cuántos GTFS (del más nuevo al más viejo) probar
 
 const gtfsKey = name => { const m = name.match(/(\d{8})/); return m ? m[1] : '00000000'; };
@@ -551,6 +558,7 @@ function sortCandidates(names, re, keyFn){
 }
 const sortGTFS = names => sortCandidates(names, GTFS_NAME_RE, gtfsKey);
 const sortDECO = names => sortCandidates(names, DECO_NAME_RE, decoKey);
+const sortREG = names => sortCandidates(names, REG_NAME_RE, regKey);
 
 async function fetchJSON(url){
   const r = await fetch(url, { cache: 'no-store' });
@@ -600,16 +608,17 @@ async function probeNames(prefix){
 async function discoverAll(){
   showOverlay('Buscando el GTFS y el DECO más recientes…');
   const names = await listDataDir();
-  let gtfs = [], deco = [];
+  let gtfs = [], deco = [], reg = [];
   if (names){
-    gtfs = sortGTFS(names); deco = sortDECO(names);
+    gtfs = sortGTFS(names); deco = sortDECO(names); reg = sortREG(names);
   } else {
     try { gtfs = sortGTFS(await probeNames('GTFS_')); } catch (e){}
     try { deco = sortDECO(await probeNames('DECO_VIGENTES_')); } catch (e){}
   }
   if (!gtfs.length) gtfs = sortGTFS([KNOWN_GTFS]);
   if (!deco.length) deco = sortDECO([KNOWN_DECO]);
-  return { gtfs, deco };
+  if (!reg.length) reg = sortREG([KNOWN_REG]);
+  return { gtfs, deco, reg };
 }
 
 async function downloadFile(c, silent){
@@ -671,7 +680,8 @@ async function autoLoad(){
   loading = true;
   $('welcome').hidden = true;
   try {
-    const { gtfs, deco } = await discoverAll();
+    const { gtfs, deco, reg } = await discoverAll();
+    loadRegistro(reg.slice(0, 2));                 // registro de buses (opcional, en segundo plano)
     decoPromise = loadDeco(deco.slice(0, 2));      // se descarga en paralelo con el GTFS
     contPromise = loadCont();                      // contingencia.json (opcional)
     versionPromise = loadVersion();                // version.json (opcional)
@@ -2098,12 +2108,41 @@ function currentBuses(){
   return state.dir === '0' ? [...b.I, ...b.U] : [...b.R, ...b.U];
 }
 
+/* REGISTRO_DD_MM_AA.json (data/): { "FLXD83": { unit, type, tech, year, model }, ... }
+   La PPU del GPS (FLXD-12) se normaliza igual que el registro (FLXD12): mayúsculas, sin guiones ni espacios.
+   Es opcional: si no carga, los buses muestran "Sin información del bus." */
+const normPpu = v => String(v == null ? '' : v).toUpperCase().replace(/[^A-Z0-9]/g, '');
+async function loadRegistro(cands){
+  for (const c of cands){
+    try {
+      const r = await fetch(c.url, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      let txt = await r.text();
+      if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
+      const j = JSON.parse(txt);
+      const map = new Map();
+      for (const k of Object.keys(j)) map.set(normPpu(k), j[k]);
+      state.registro = map; state.registroName = c.name;
+      return;
+    } catch (e){ console.warn('Registro ' + c.name + ' falló:', e); }
+  }
+}
+function busInfoHtml(ppu){
+  const info = state.registro && state.registro.get(normPpu(ppu));
+  if (!info) return '<div class="bus-info none">Sin información del bus.</div>';
+  const rows = [['Tipo', info.type], ['Tecnología', info.tech], ['Año', info.year], ['Modelo', info.model]]
+    .filter(r => r[1] != null && String(r[1]).trim() !== '');
+  if (!rows.length) return '<div class="bus-info none">Sin información del bus.</div>';
+  return '<div class="bus-info">' + rows.map(r => '<div><span>' + r[0] + '</span> ' + escapeHtml(String(r[1])) + '</div>').join('') + '</div>';
+}
+
 function busPopup(b){
   const t = b.ts ? new Date(b.ts).toLocaleTimeString('es-CL') : '';
   const dirTxt = b.dir === 'I' ? 'Ida' : b.dir === 'R' ? 'Regreso' : '';
   return '<b>' + escapeHtml(b.ppu) + '</b><br>' + escapeHtml(b.code) + (dirTxt ? ' · ' + dirTxt : '') + (b.sup ? ' · Apoyo' : '') +
     ((b.speed != null && b.speed !== '') ? '<br>' + Math.round(+b.speed) + ' km/h' : '') +
-    (t ? (b.speed != null ? ' · ' : '<br>') + t : '');
+    (t ? (b.speed != null ? ' · ' : '<br>') + t : '') +
+    busInfoHtml(b.ppu);
 }
 
 // Círculo más grande que un paradero, con la PPU en un rectángulo arriba
@@ -2125,7 +2164,7 @@ function drawBuses(fit){
       fillColor: b.sup ? CONT_COLOR : (state.busColor || DEFAULT_COLOR), fillOpacity: 1
     }).addTo(lyr);
     m.bindTooltip(escapeHtml(b.ppu), { permanent: true, direction: 'top', offset: [0, -9], className: 'bus-tip' });
-    m.bindPopup(busPopup(b));
+    m.bindPopup(() => busPopup(b));   // se arma al abrir: toma el registro aunque haya cargado después
     m.on('popupopen', () => { state.openBus = b.ppu; });
     m.on('popupclose', () => { if (!state.redrawing && state.openBus === b.ppu) state.openBus = null; });
     if (state.openBus === b.ppu) m.openPopup();   // la actualización no cierra el popup abierto
