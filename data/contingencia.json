@@ -16,6 +16,20 @@
       ]
     },
     {
+      "servicio": "105",
+      "apoyo": true,
+      "apoyan": [
+        {
+          "codigo": "T293 00R",
+          "sentido": "Retorno"
+        },
+        {
+          "codigo": "T293 00I",
+          "sentido": "Ida"
+        }
+      ]
+    },
+    {
       "servicio": "105c",
       "apoyo": true,
       "apoyan": [
@@ -61,6 +75,16 @@
       "apoyan": [
         {
           "codigo": "T1598 00I",
+          "sentido": "Ida"
+        }
+      ]
+    },
+    {
+      "servicio": "B46",
+      "apoyo": false,
+      "apoyan": [
+        {
+          "codigo": "T1826 00I",
           "sentido": "Ida"
         }
       ]
