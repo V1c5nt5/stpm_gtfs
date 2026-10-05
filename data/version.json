@@ -1,9 +1,14 @@
 {
-  "version": "v1.0.4",
-  "fecha": "04/10/26",
+  "version": "v1.0.4.1",
+  "fecha": "05/10/26",
   "cambios": [
-    "Ahora puedes tocar un bus en el mapa para ver su información: tipo, tecnología, año y modelo.",
-    "Mejor organización de los recorridos según su operadora.",
-    "Mejoras en la información de los recorridos del plan de contingencia."
-  ]
+    "Se incorporó una nueva API de mapas.",
+    "Algunas funciones podrían presentar errores ya que estamos incorporando mejoras en sistemas de identificación"
+  ],
+  "archivos": {
+    "gtfs": "GTFS_20261003.zip",
+    "deco": "DECO_VIGENTES_20260829.zip",
+    "registro": "REGISTRO_04_10_26.json",
+    "contingencia": "contingencia.json"
+  }
 }
