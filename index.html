@@ -383,6 +383,13 @@ const libLeaflet = loadScript([
 libLeaflet.catch(() => {});
 
 const $ = id => document.getElementById(id);
+
+/* ---------- Mapbox ----------
+   Token PÚBLICO (pk.…): es normal que vaya en el HTML. Conviene restringirlo por URL
+   en el panel de Mapbox. Nunca pongas aquí un token secreto (sk.…). */
+const MAPBOX_TOKEN = 'pk.eyJ1IjoidmljeG9hbHNhY2lhIiwiYSI6ImNtdXZzNDBhYTF3bHYyeHB1OW1qMXNnZXUifQ.Z2F4wss6lpcZpqtXfk_eHg';
+const MAPBOX_STYLE = 'mapbox/streets-v12';   // alternativas: light-v11, dark-v11, outdoors-v12, satellite-streets-v12
+const hasMapboxToken = () => /^pk\./.test(MAPBOX_TOKEN);
 const DEFAULT_COLOR = '#D81E05';
 const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
 const DAY_LBL = ['L','M','M','J','V','S','D'];
@@ -1641,10 +1648,24 @@ function mapMessage(msg){
 function ensureMap(){
   if (state.map) return state.map;
   if (typeof L === 'undefined') return null;
+  if (!hasMapboxToken()){
+    mapMessage('Falta configurar el token de Mapbox (MAPBOX_TOKEN en index.html).');
+    return null;
+  }
   const map = L.map('map', { zoomControl: true, attributionControl: true });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  let tileErrShown = false;
+  L.tileLayer('https://api.mapbox.com/styles/v1/' + MAPBOX_STYLE + '/tiles/{z}/{x}/{y}?access_token=' + MAPBOX_TOKEN, {
+    tileSize: 512,
+    zoomOffset: -1,
     maxZoom: 19,
-    attribution: '&copy; OpenStreetMap'
+    attribution: '&copy; <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener">Mapbox</a> ' +
+                 '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+  }).on('tileerror', () => {
+    if (tileErrShown) return;
+    tileErrShown = true;
+    mapMessage('No se pudieron cargar los tiles de Mapbox (revisa el token y sus restricciones de URL).');
+  }).on('tileload', () => {
+    if (tileErrShown){ tileErrShown = false; mapMessage(''); }
   }).addTo(map);
   map.setView([-33.45, -70.66], 11);
   state.layer = L.layerGroup().addTo(map);
