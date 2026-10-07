@@ -390,6 +390,104 @@ const $ = id => document.getElementById(id);
 const MAPBOX_TOKEN = 'pk.eyJ1IjoidmljeG9hbHNhY2lhIiwiYSI6ImNtdXZzNDBhYTF3bHYyeHB1OW1qMXNnZXUifQ.Z2F4wss6lpcZpqtXfk_eHg';
 const MAPBOX_STYLE = 'mapbox/streets-v12';   // alternativas: light-v11, dark-v11, outdoors-v12, satellite-streets-v12
 const hasMapboxToken = () => /^pk\./.test(MAPBOX_TOKEN);
+
+/* ---------- Mapbox: uso eficiente (v1.0.4.1.10) ----------
+   - Una sola instancia de mapa durante toda la sesión (state.map), nunca se recrea.
+   - Las teselas se piden SOLO cuando el mapa ya tiene su vista final (antes se pedía primero
+     la vista por defecto de Santiago y luego la del recorrido = teselas desperdiciadas).
+   - Cada tesela se guarda en Cache API: ver la misma zona otra vez (otro recorrido, otro día)
+     no vuelve a llamar a Mapbox. Peticiones simultáneas a la misma tesela se unifican.
+   - Zoom acotado (9–19; sobre 18 se amplía la tesela en vez de pedir otra) y sin cargar
+     teselas intermedias mientras se hace zoom o se arrastra el mapa.
+   Ajusta TILE_TTL_MS / TILE_MAX_ENTRIES según los términos de uso de tu plan de Mapbox.
+   En consola: mapStats → { network: peticiones a Mapbox, cache: teselas servidas del caché }. */
+const MAP_DEFAULT_VIEW = { center: [-33.45, -70.66], zoom: 11 };
+const TILE_CACHE_NAME = 'mapbox-tiles-v1';
+const TILE_TTL_MS = 7 * 24 * 3600 * 1000;   // vigencia de una tesela guardada
+const TILE_MAX_ENTRIES = 1500;              // tope de teselas guardadas
+const mapStats = { network: 0, cache: 0 };
+window.mapStats = mapStats;
+const tileInflight = new Map();
+let tileCachePromise = null;
+
+function openTileCache(){
+  if (!('caches' in window)) return Promise.resolve(null);
+  if (!tileCachePromise) tileCachePromise = caches.open(TILE_CACHE_NAME).catch(() => null);
+  return tileCachePromise;
+}
+async function trimTileCache(){
+  try {
+    const c = await openTileCache(); if (!c) return;
+    const keys = await c.keys();
+    if (keys.length > TILE_MAX_ENTRIES)
+      await Promise.all(keys.slice(0, keys.length - TILE_MAX_ENTRIES).map(k => c.delete(k)));
+  } catch (e){}
+}
+function mapboxTileUrl(z, x, y){
+  return 'https://api.mapbox.com/styles/v1/' + MAPBOX_STYLE + '/tiles/' + z + '/' + x + '/' + y +
+         '?access_token=' + MAPBOX_TOKEN;
+}
+function getTileBlob(z, x, y){
+  // la clave del caché no incluye el token: cambiarlo no invalida lo guardado
+  const key = 'https://tiles.cache.local/' + MAPBOX_STYLE + '/' + z + '/' + x + '/' + y;
+  if (tileInflight.has(key)) return tileInflight.get(key);
+  const p = (async () => {
+    const cache = await openTileCache();
+    if (cache){
+      try {
+        const hit = await cache.match(key);
+        if (hit){
+          const at = +hit.headers.get('x-cached-at') || 0;
+          if (Date.now() - at < TILE_TTL_MS){ mapStats.cache++; return await hit.blob(); }
+          await cache.delete(key);
+        }
+      } catch (e){}
+    }
+    mapStats.network++;
+    const r = await fetch(mapboxTileUrl(z, x, y));
+    if (!r.ok){ const err = new Error('HTTP ' + r.status); err.status = r.status; throw err; }
+    const blob = await r.blob();
+    if (cache){
+      try {
+        await cache.put(key, new Response(blob, { headers: {
+          'Content-Type': blob.type || 'image/png', 'x-cached-at': String(Date.now())
+        }}));
+      } catch (e){}
+    }
+    return blob;
+  })();
+  tileInflight.set(key, p);
+  const clear = () => tileInflight.delete(key);
+  p.then(clear, clear);
+  return p;
+}
+let CachedTileLayer = null;
+function getCachedTileLayerClass(){
+  if (CachedTileLayer) return CachedTileLayer;
+  CachedTileLayer = L.TileLayer.extend({
+    createTile(coords, done){
+      const tile = document.createElement('img');
+      tile.alt = '';
+      tile.setAttribute('role', 'presentation');
+      const z = this._getZoomForUrl();
+      getTileBlob(z, coords.x, coords.y).then(blob => {
+        const u = URL.createObjectURL(blob);
+        tile.onload = () => { URL.revokeObjectURL(u); done(null, tile); };
+        tile.onerror = () => { URL.revokeObjectURL(u); done(new Error('tile'), tile); };
+        tile.src = u;
+      }).catch(err => {
+        if (err instanceof TypeError){
+          // fetch bloqueado (p. ej. CORS/red): último recurso, carga directa de la imagen
+          tile.onload = () => done(null, tile);
+          tile.onerror = () => done(err, tile);
+          tile.src = this.getTileUrl(coords);
+        } else done(err, tile);
+      });
+      return tile;
+    }
+  });
+  return CachedTileLayer;
+}
 const DEFAULT_COLOR = '#D81E05';
 const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
 const DAY_LBL = ['L','M','M','J','V','S','D'];
@@ -505,6 +603,7 @@ const state = {
   dir: null,
   shapeId: null,
   map: null,
+  tiles: null,         // capa de teselas Mapbox (se crea una sola vez)
   layer: null,
   busLayer: null,      // buses en tiempo real (capa aparte de los paraderos)
   busColor: null,
@@ -1652,12 +1751,30 @@ function ensureMap(){
     mapMessage('Falta configurar el token de Mapbox (MAPBOX_TOKEN en index.html).');
     return null;
   }
-  const map = L.map('map', { zoomControl: true, attributionControl: true });
+  // Sin vista ni teselas todavía: se agregan en ensureTiles() cuando la vista ya es la definitiva
+  const map = L.map('map', { zoomControl: true, attributionControl: true, minZoom: 9, maxZoom: 19 });
+  state.layer = L.layerGroup().addTo(map);
+  state.map = map;
+  return map;
+}
+
+// Agrega la capa de teselas (una sola vez) cuando el mapa ya tiene su vista final y tamaño real
+function ensureTiles(map){
+  if (!map || state.tiles) return;
+  const el = $('map');
+  if (!el || !el.clientWidth || !el.clientHeight) return;   // oculto: se reintenta luego
+  if (!map._loaded) map.setView(MAP_DEFAULT_VIEW.center, MAP_DEFAULT_VIEW.zoom);
   let tileErrShown = false;
-  L.tileLayer('https://api.mapbox.com/styles/v1/' + MAPBOX_STYLE + '/tiles/{z}/{x}/{y}?access_token=' + MAPBOX_TOKEN, {
+  state.tiles = new (getCachedTileLayerClass())('', {
     tileSize: 512,
     zoomOffset: -1,
+    minZoom: 9,
     maxZoom: 19,
+    maxNativeZoom: 18,          // sobre este nivel se amplía la tesela, no se pide otra
+    updateWhenIdle: true,       // no cargar teselas mientras se arrastra
+    updateWhenZooming: false,   // ni durante la animación de zoom
+    updateInterval: 300,
+    keepBuffer: 3,
     attribution: '&copy; <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener">Mapbox</a> ' +
                  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
   }).on('tileerror', () => {
@@ -1667,10 +1784,7 @@ function ensureMap(){
   }).on('tileload', () => {
     if (tileErrShown){ tileErrShown = false; mapMessage(''); }
   }).addTo(map);
-  map.setView([-33.45, -70.66], 11);
-  state.layer = L.layerGroup().addTo(map);
-  state.map = map;
-  return map;
+  trimTileCache();
 }
 
 async function drawMap(points, stops, color, stopsEl){
@@ -1696,6 +1810,7 @@ async function drawMap(points, stops, color, stopsEl){
     if (valid.length) map.fitBounds(valid.map(s => [s.lat, s.lng]), { padding: [28, 28], maxZoom: 16 });
     else mapMessage('Este recorrido no tiene coordenadas para mostrar en el mapa.');
   }
+  ensureTiles(map);
 
   stops.forEach(s => {
     if (isNaN(s.lat) || isNaN(s.lng)) return;
@@ -1712,7 +1827,7 @@ async function drawMap(points, stops, color, stopsEl){
   state.busColor = color;
   drawBuses(false);
 
-  setTimeout(() => map.invalidateSize(), 50);
+  setTimeout(() => { map.invalidateSize(); ensureTiles(map); }, 50);
 }
 
 /* =====================================================================
@@ -1733,7 +1848,7 @@ async function drawMap(points, stops, color, stopsEl){
    El sentido sale de route_direction (o del sufijo I/R del código) y se muestra en Ida / Regreso.
    Todas las variantes del servicio (T1466 00I, T1466 03I…) caen en el mismo Ida/Regreso.
    ===================================================================== */
-/* version.json (data/version.json): { "version": "v1.0.4", "fecha": "04/10/26", "cambios": ["...", "..."] }
+/* version.json (data/version.json): { "version": "v1.0.4.1.10", "fecha": "07/10/26", "cambios": ["...", "..."] }
    Si el archivo no existe, no se muestra versión ni cambios. */
 async function loadVersion(){
   try {
@@ -2245,6 +2360,7 @@ async function drawLiveOnlyMap(fit){
   map.invalidateSize();
   state.layer.clearLayers();
   drawBuses(fit);
+  ensureTiles(map);
 }
 
 // En cada actualización: se redibujan solo los buses (sin mover el mapa)
