@@ -1,9 +1,9 @@
 {
-  "version": "v1.0.4.1",
-  "fecha": "05/10/26",
+  "version": "v1.0.4.1.10",
+  "fecha": "07/10/26",
   "cambios": [
-    "Se incorporó una nueva API de mapas.",
-    "Algunas funciones podrían presentar errores ya que estamos incorporando mejoras en sistemas de identificación"
+    "Mejoras en el mapa visualizador de buses.",
+    "Estamos trabajando en incorporar un sistema para buscar patentes (PPU) especificas. Ejemplo: SPHF15"
   ],
   "archivos": {
     "gtfs": "GTFS_20261003.zip",
