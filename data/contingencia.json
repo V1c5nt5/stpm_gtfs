@@ -89,6 +89,16 @@
         }
       ]
     },
+        {
+      "servicio": "C10e",
+      "apoyo": false,
+      "apoyan": [
+        {
+          "codigo": "T1310 C2 00R",
+          "sentido": "Retorno"
+        }
+      ]
+    },
     {
       "servicio": "F09",
       "apoyo": true,
