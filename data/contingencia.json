@@ -35,7 +35,9 @@
     {
       "servicio": "410e",
       "apoyo": true,
-      "apoyan": []
+      "apoyan": [
+                {"codigo": "T1091 00I", "sentido": "Ida"}
+      ]
     },
     {
       "servicio": "712",
