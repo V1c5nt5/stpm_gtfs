@@ -24,6 +24,13 @@
         { "codigo": "294x", "sentido": "Retorno" }
       ]
     },
+        {
+      "servicio": "219e",
+      "apoyo": false,
+      "apoyan": [
+        { "codigo": "T1819 E2 00R", "sentido": "Retorno" }
+      ]
+    },
     {
       "servicio": "410",
       "apoyo": true,
