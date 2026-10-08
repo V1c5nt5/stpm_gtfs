@@ -26,7 +26,7 @@
     },
         {
       "servicio": "219e",
-      "apoyo": true,
+      "apoyo": false,
       "apoyan": [
         { "codigo": "T1819 E2 00R", "sentido": "Retorno" }
       ]
