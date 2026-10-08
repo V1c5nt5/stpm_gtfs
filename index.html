@@ -245,6 +245,25 @@
   .sched-24{font-size:10.5px;font-weight:700;color:#1d6b2f;letter-spacing:.04em;text-transform:uppercase}
   .sched-none{font-size:13px;color:#a0a0a6}
 
+
+  /* ---------- Terminales (v1.0.5.0) ---------- */
+  .mode-switch{display:flex;gap:4px;padding:3px;background:#ececef;border-radius:8px;margin-bottom:10px}
+  .mode-btn{
+    flex:1;padding:6px 10px;border:none;background:transparent;border-radius:6px;cursor:pointer;
+    font-family:inherit;font-size:12.5px;font-weight:600;color:#6b6b72;transition:all .12s;
+  }
+  .mode-btn.active{background:#fff;color:#1a1a1c;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+  .term-filter{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6b6b72;margin-top:6px;cursor:pointer;user-select:none}
+  .term-filter input{margin:0}
+  .route-badge.term{background:#ececef;color:#8a8a90}
+  .route-badge.term.on{background:#d81e05;color:#fff}
+  .term-reg{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    color:#1d6b2f;background:#e6f4ea;border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:1px}
+  .bus-row .bus-ppu{font-weight:700;font-size:13px;letter-spacing:.02em;min-width:68px;font-variant-numeric:tabular-nums}
+  .bus-row .stop-name small{display:block;color:#86868b;font-size:11.5px;margin-top:1px}
+  .bus-row .bus-meta{font-size:11.5px;color:#86868b;white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
+  .bus-row .edge{color:#c25e00;font-weight:600}
+
   /* ---------- Overlay ---------- */
   .overlay{
     position:fixed;inset:0;background:rgba(255,255,255,.9);z-index:9999;
@@ -294,15 +313,21 @@
 <div class="layout" id="layout" hidden>
   <aside class="sidebar">
     <div class="search-wrap">
+      <div class="mode-switch" id="mode-switch">
+        <button type="button" class="mode-btn active" data-mode="routes">Recorridos</button>
+        <button type="button" class="mode-btn" data-mode="term">Terminales</button>
+        <button type="button" class="mode-btn" data-mode="pat">Patente</button>
+      </div>
       <input type="text" id="search" placeholder="Buscar recorrido o destino…" autocomplete="off" spellcheck="false">
       <div class="count" id="count"></div>
+      <label class="term-filter" id="term-filter" hidden><input type="checkbox" id="term-only"> Solo terminales con buses</label>
     </div>
     <div class="results" id="results"></div>
   </aside>
 
   <main class="detail">
     <div class="empty" id="detail-empty">
-      <div>Selecciona un recorrido de la lista</div>
+      <div id="empty-msg">Selecciona un recorrido de la lista</div>
       <div class="changelog" id="changelog" hidden></div>
     </div>
 
@@ -791,6 +816,7 @@ async function autoLoad(){
     decoPromise = loadDeco(deco.slice(0, 2));      // se descarga en paralelo con el GTFS
     contPromise = loadCont();                      // contingencia.json (opcional)
     versionPromise = loadVersion();                // version.json (opcional)
+    loadTerminales(versionPromise);                // terminales: el nombre del archivo viene de version.json
     const cands = gtfs.slice(0, MAX_TRIES);
     if (!cands.length) throw new Error('No hay archivos GTFS_*.zip en la carpeta /data del repositorio.');
     let lastErr = null;
@@ -1145,6 +1171,8 @@ function buildEntries(g){
 }
 
 function renderResults(query){
+  if (state.mode === 'term'){ renderTermList(query); return; }
+  if (state.mode === 'pat'){ renderPatList(query); return; }
   const g = state.gtfs;
   if (!g) return;
   const q = norm(query);
@@ -1249,7 +1277,7 @@ function selectRoute(routeId, entry){
   state.entryKey = entry ? entry.key : null;
   state.label = entry ? entry.label : null;
   state.sub = entry ? entry.sub : null;
-  state.dir = null;
+  state.dir = state.pendingDir || null; state.pendingDir = null;
   state.shapeId = null;
 
   document.querySelectorAll('.route-item').forEach(el => {
@@ -1804,10 +1832,11 @@ async function drawMap(points, stops, color, stopsEl){
     const line = L.polyline(points, {
       color, weight: 4, opacity: 0.9, lineJoin: 'round', lineCap: 'round'
     }).addTo(state.layer);
-    map.fitBounds(line.getBounds(), { padding: [28, 28] });
+    if (!focusBusView(map)) map.fitBounds(line.getBounds(), { padding: [28, 28] });
   } else {
     const valid = stops.filter(s => !isNaN(s.lat) && !isNaN(s.lng));
-    if (valid.length) map.fitBounds(valid.map(s => [s.lat, s.lng]), { padding: [28, 28], maxZoom: 16 });
+    if (focusBusView(map)){}
+    else if (valid.length) map.fitBounds(valid.map(s => [s.lat, s.lng]), { padding: [28, 28], maxZoom: 16 });
     else mapMessage('Este recorrido no tiene coordenadas para mostrar en el mapa.');
   }
   ensureTiles(map);
@@ -2167,6 +2196,8 @@ function resolveEntries(g, rawCode){
 
 // Reparte todos los buses del último GeoJSON entre las entradas de la lista
 function applyLive(feats){
+  try { termApply(feats); } catch (e){ console.warn('Terminales:', e); }
+  try { patRefresh(); } catch (e){ console.warn('Patente:', e); }
   const g = state.gtfs;
   if (!g || !g.entriesByUser) return;
   const by = new Map(), cache = new Map();
@@ -2293,6 +2324,7 @@ function drawBuses(fit){
 
   const bs = currentBuses();
   const pts = [];
+  state.busMarkers = {};
   for (const b of bs){
     pts.push([b.lat, b.lng]);
     const m = L.circleMarker([b.lat, b.lng], {
@@ -2304,6 +2336,12 @@ function drawBuses(fit){
     m.on('popupopen', () => { state.openBus = b.ppu; });
     m.on('popupclose', () => { if (!state.redrawing && state.openBus === b.ppu) state.openBus = null; });
     if (state.openBus === b.ppu) m.openPopup();   // la actualización no cierra el popup abierto
+    state.busMarkers[b.ppu] = m;
+  }
+  if (state.focusPpu){   // llegada desde "Patente": se acerca al bus y se abre su información
+    const fm = state.busMarkers[state.focusPpu];
+    if (fm){ map.setView(fm.getLatLng(), BUS_FOCUS_ZOOM, { animate: false }); fm.openPopup(); }
+    state.focusPpu = null;
   }
   if (state.liveOnly) mapMessage(bs.length ? '' : 'Sin buses reportando en este recorrido por ahora.');
   if (fit && pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
@@ -2599,6 +2637,471 @@ async function checkCont(){
   el.scrollTop = top;
   if (state.liveRaw) applyLive(state.liveRaw);
 }
+
+/* =====================================================================
+   TERMINALES (v1.0.5.0)
+   Archivo: GeoJSON de polígonos (data/GeoJson.geojson). Cada Feature trae:
+     properties.Terminal              → nombre del terminal
+     properties["Punto de Regulacion"] → "SI" si además es punto de regulación
+   El NOMBRE DEL ARCHIVO se lee de version.json → archivos.terminales, así que se puede
+   renombrar en el repo sin tocar este código. Si version.json no lo trae se usa KNOWN_TERM.
+   Un bus está "en el terminal" cuando su posición GPS cae dentro del polígono
+   (punto-en-polígono exacto). TERM_TOL_M agrega un margen en metros alrededor del borde para
+   absorber el error del GPS: 0 = solo dentro del polígono. Los buses que entran por ese
+   margen se marcan "borde".
+   ===================================================================== */
+const KNOWN_TERM = 'GeoJson.geojson';   // último recurso si version.json no indica el archivo
+const TERM_TOL_M = 0;               // 0 = solo buses literalmente dentro del polígono
+const SHOW_REGULACION = false;      // false = se ocultan los puntos de regulación (Punto de Regulacion = "SI")
+state.mode = 'routes';
+state.terms = null;         // null = cargando · [] = sin datos · [...] = terminales
+state.termsName = '';
+state.termId = null;
+state.termAt = null;
+state.termOnly = false;
+
+function termFileNames(v){
+  const a = v && v.archivos;
+  const n = a && (a.terminales || a.terminal || a.geojson);
+  return [...new Set([n, KNOWN_TERM].filter(x => typeof x === 'string' && x.trim()).map(x => x.trim()))];
+}
+
+function parseTerminales(fc){
+  const out = [];
+  const feats = fc && Array.isArray(fc.features) ? fc.features : [];
+  feats.forEach((f, i) => {
+    const gm = f && f.geometry, p = (f && f.properties) || {};
+    if (!gm || !gm.coordinates) return;
+    const polys = gm.type === 'Polygon' ? [gm.coordinates] : gm.type === 'MultiPolygon' ? gm.coordinates : null;
+    if (!polys) return;
+    if (!SHOW_REGULACION && norm(p['Punto de Regulacion']) === 'si') return;
+    const name = String(p.Terminal == null ? '' : p.Terminal).trim() || ('Terminal ' + (i + 1));
+    let minLa = 90, maxLa = -90, minLo = 180, maxLo = -180, sLa = 0, sLo = 0, n = 0;
+    const rings = polys.map(poly => poly.map(r => r.map(c => [+c[0], +c[1]])));
+    for (const poly of rings) for (const c of poly[0]){
+      if (c[1] < minLa) minLa = c[1]; if (c[1] > maxLa) maxLa = c[1];
+      if (c[0] < minLo) minLo = c[0]; if (c[0] > maxLo) maxLo = c[0];
+      sLa += c[1]; sLo += c[0]; n++;
+    }
+    if (!n) return;
+    out.push({
+      id: 'T' + i, name, search: norm(name),
+      reg: norm(p['Punto de Regulacion']) === 'si',
+      polys: rings, bbox: [minLo, minLa, maxLo, maxLa], buses: [],
+    });
+  });
+  out.sort((a, b) => a.name.localeCompare(b.name, 'es') || a.id.localeCompare(b.id));
+  return out;
+}
+
+async function loadTerminales(vp){
+  let v = null;
+  try { v = vp ? await vp : null; } catch (e){}
+  let ok = false;
+  for (const name of termFileNames(v)){
+    try {
+      const r = await fetch(RAW_BASE + encodeURIComponent(name), { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      let txt = await r.text();
+      if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
+      const list = parseTerminales(JSON.parse(txt));
+      if (!list.length) throw new Error('El archivo no trae polígonos');
+      state.terms = list; state.termsName = name; ok = true;
+      break;
+    } catch (e){ console.warn('Terminales ' + name + ' falló:', e); }
+  }
+  if (!ok){ state.terms = []; state.termsName = termFileNames(v)[0] || KNOWN_TERM; }
+  if (state.liveRaw) termApply(state.liveRaw);
+  if (state.mode === 'term') renderResults($('search').value);
+}
+
+// ---- geometría ----
+function pointInRing(x, y, ring){
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++){
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+function pointInPoly(x, y, poly){
+  if (!pointInRing(x, y, poly[0])) return false;
+  for (let k = 1; k < poly.length; k++) if (pointInRing(x, y, poly[k])) return false;   // huecos
+  return true;
+}
+// Distancia (m) de un punto al borde del polígono; aproximación plana, suficiente a esta escala
+function distToEdgeM(x, y, poly){
+  const kx = 111320 * Math.cos(y * Math.PI / 180), ky = 110540;
+  let best = Infinity;
+  for (const ring of poly){
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++){
+      const ax = (ring[j][0] - x) * kx, ay = (ring[j][1] - y) * ky;
+      const bx = (ring[i][0] - x) * kx, by = (ring[i][1] - y) * ky;
+      const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+      let t = l2 ? -(ax * dx + ay * dy) / l2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      const d = Math.hypot(ax + t * dx, ay + t * dy);
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
+// null = fuera · 0 = dentro · >0 = dentro del margen de tolerancia (metros al borde)
+function termHit(t, x, y){
+  const tolLo = TERM_TOL_M / (111320 * Math.cos(y * Math.PI / 180)), tolLa = TERM_TOL_M / 110540;
+  const b = t.bbox;
+  if (x < b[0] - tolLo || x > b[2] + tolLo || y < b[1] - tolLa || y > b[3] + tolLa) return null;
+  for (const poly of t.polys) if (pointInPoly(x, y, poly)) return 0;
+  if (TERM_TOL_M > 0){
+    let best = Infinity;
+    for (const poly of t.polys){ const d = distToEdgeM(x, y, poly); if (d < best) best = d; }
+    if (best <= TERM_TOL_M) return Math.max(best, 0.1);
+  }
+  return null;
+}
+
+// Reparte los buses del GPS entre los terminales (se llama con cada actualización)
+function termApply(feats){
+  if (!state.terms || !state.terms.length || !Array.isArray(feats)) return;
+  for (const t of state.terms) t.buses = [];
+  for (const f of feats){
+    const p = f && f.properties, co = f && f.geometry && f.geometry.coordinates;
+    if (!p || !co) continue;
+    const lat = +co[1], lng = +co[0];
+    if (!isFinite(lat) || !isFinite(lng)) continue;
+    const ppu = String(p.license_plate == null ? '' : p.license_plate).trim();
+    const code = String(p.route_code == null ? '' : p.route_code).trim();
+    let bus = null;
+    for (const t of state.terms){
+      const h = termHit(t, lng, lat);
+      if (h == null) continue;
+      if (!bus) bus = { ppu: ppu || '—', lat, lng, speed: p.speed, ts: parseTs(p.timestamp), code, dir: busDir(p, code) };
+      t.buses.push(Object.assign({}, bus, { edge: h > 0 }));
+    }
+  }
+  for (const t of state.terms) t.buses.sort((a, b) => a.ppu.localeCompare(b.ppu));
+  state.termAt = Date.now();
+  if (state.mode !== 'term') return;
+  const el = $('results'), top = el.scrollTop;
+  renderTermList($('search').value);
+  el.scrollTop = top;
+  if (state.termId) renderTermDetail(false);
+}
+
+// ---- lista ----
+function renderTermList(query){
+  const el = $('results');
+  el.innerHTML = '';
+  if (state.terms == null){
+    $('count').textContent = '';
+    el.innerHTML = '<div class="empty-list">Cargando terminales…</div>';
+    return;
+  }
+  if (!state.terms.length){
+    $('count').textContent = '';
+    el.innerHTML = '<div class="empty-list">No se pudo cargar el archivo de terminales (' + escapeHtml(state.termsName) + ').<br>Revisa que exista en la carpeta /data y que version.json indique su nombre en archivos.terminales.</div>';
+    return;
+  }
+  const q = norm(query);
+  let list = state.terms;
+  if (q) list = list.filter(t => t.search.includes(q));
+  if (state.termOnly) list = list.filter(t => t.buses.length);
+  list = [...list].sort((a, b) => b.buses.length - a.buses.length || a.name.localeCompare(b.name, 'es') || a.id.localeCompare(b.id));
+  const total = list.reduce((n, t) => n + t.buses.length, 0);
+  $('count').textContent = list.length + (list.length === 1 ? ' terminal' : ' terminales') + ' · ' + total + (total === 1 ? ' bus' : ' buses');
+  if (!list.length){ el.innerHTML = '<div class="empty-list">Sin resultados</div>'; return; }
+  const frag = document.createDocumentFragment();
+  let lastHas = null;
+  for (const t of list){
+    const has = t.buses.length > 0;
+    if (has !== lastHas){
+      lastHas = has;
+      const sep = document.createElement('div');
+      sep.className = 'group-sep';
+      sep.textContent = has ? 'Con buses' : 'Sin buses';
+      frag.appendChild(sep);
+    }
+    const btn = document.createElement('button');
+    btn.className = 'route-item' + (t.id === state.termId ? ' active' : '');
+    btn.dataset.tid = t.id;
+    const n = t.buses.length;
+    btn.innerHTML =
+      '<span class="route-badge term' + (n ? ' on' : '') + '">' + n + '</span>' +
+      '<span class="route-text"><span class="route-dest">' + escapeHtml(t.name) + '</span>' +
+      '<span class="route-sub">' + (t.reg ? 'Punto de regulación · ' : '') + (n === 1 ? '1 bus' : n + ' buses') + '</span></span>';
+    btn.addEventListener('click', () => selectTerminal(t.id));
+    frag.appendChild(btn);
+  }
+  el.appendChild(frag);
+}
+
+function selectTerminal(id){
+  state.termId = id;
+  state.openBus = null;
+  document.querySelectorAll('.route-item[data-tid]').forEach(el => el.classList.toggle('active', el.dataset.tid === id));
+  renderTermDetail(true);
+}
+
+// ---- detalle ----
+function termBusRow(b){
+  const info = state.registro && state.registro.get(normPpu(b.ppu));
+  const extra = info ? [info.type, info.tech, info.year].filter(x => x != null && String(x).trim() !== '').join(' · ') : '';
+  const dirTxt = b.dir === 'I' ? 'Ida' : b.dir === 'R' ? 'Regreso' : '';
+  const svc = b.code ? escapeHtml(b.code) + (dirTxt ? ' · ' + dirTxt : '') : 'Sin servicio informado';
+  const t = b.ts ? new Date(b.ts).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+  const spd = (b.speed != null && b.speed !== '' && isFinite(+b.speed)) ? Math.round(+b.speed) + ' km/h' : '';
+  return '<span class="bus-ppu">' + escapeHtml(b.ppu) + '</span>' +
+    '<span class="stop-name">' + svc + (b.edge ? ' · <span class="edge">borde</span>' : '') +
+    (extra ? '<small>' + escapeHtml(extra) + '</small>' : '') + '</span>' +
+    '<span class="bus-meta">' + [spd, t].filter(Boolean).join('<br>') + '</span>';
+}
+
+function renderTermDetail(fresh){
+  const t = state.terms && state.terms.find(x => x.id === state.termId);
+  if (!t) return;
+  $('detail-empty').hidden = true;
+  $('detail-inner').hidden = false;
+  const n = t.buses.length;
+  const badge = $('detail-badge');
+  badge.textContent = n;
+  badge.style.background = n ? DEFAULT_COLOR : '#ececef';
+  badge.style.color = n ? '#fff' : '#8a8a90';
+  $('detail-title').textContent = t.name;
+  $('detail-sub').textContent = (t.reg ? 'Punto de regulación · ' : 'Terminal · ') + (n === 1 ? '1 bus' : n + ' buses') + ' dentro del recinto';
+  $('tabs').innerHTML = ''; $('tabs').hidden = true;
+  $('variants').innerHTML = ''; $('variant-note').textContent = '';
+  const svcs = new Set(t.buses.filter(b => b.code).map(b => stripVar(b.code))).size;
+  const at = state.termAt ? new Date(state.termAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+  const blk = (l, v) => '<div class="meta-block"><span class="meta-label">' + l + '</span><span class="meta-value">' + v + '</span></div>';
+  $('meta').innerHTML = blk('Buses en terminal', n) + blk('Servicios distintos', svcs) + blk('Última lectura GPS', at);
+  $('stops-head').textContent = 'Patentes en el terminal · ' + n;
+  const stopsEl = $('stops');
+  stopsEl.hidden = false;
+  stopsEl.innerHTML = '';
+  if (!n){
+    stopsEl.innerHTML = '<div class="stop-row">Sin buses en este terminal por ahora.</div>';
+  } else for (const b of t.buses){
+    const row = document.createElement('div');
+    row.className = 'stop-row bus-row';
+    row.innerHTML = termBusRow(b);
+    row.addEventListener('click', () => { const m = (state.termMarkers || {})[b.ppu]; if (m){ state.map.setView(m.getLatLng(), Math.max(state.map.getZoom(), 17)); m.openPopup(); } });
+    stopsEl.appendChild(row);
+  }
+  drawTermMap(t, fresh);
+}
+
+async function drawTermMap(t, fit){
+  if (typeof L === 'undefined'){
+    mapMessage('Cargando mapa…');
+    try { await libLeaflet; }
+    catch (e){ mapMessage('No se pudo cargar el mapa (se necesita conexión a internet).'); return; }
+  }
+  mapMessage('');
+  const map = ensureMap();
+  if (!map || state.termId !== t.id) return;
+  map.invalidateSize();
+  if (fit){
+    state.layer.clearLayers();
+    const poly = L.polygon(t.polys.map(p => p.map(r => r.map(c => [c[1], c[0]]))), {
+      color: '#d81e05', weight: 3, opacity: 0.95, fillColor: '#d81e05', fillOpacity: 0.14
+    }).addTo(state.layer);
+    map.fitBounds(poly.getBounds(), { padding: [40, 40], maxZoom: 18 });
+  }
+  if (!state.busLayer) state.busLayer = L.layerGroup().addTo(map);
+  state.redrawing = true; state.busLayer.clearLayers(); state.redrawing = false;
+  state.termMarkers = {};
+  for (const b of t.buses){
+    const m = L.circleMarker([b.lat, b.lng], {
+      radius: 9, color: '#1a1a1c', weight: 2,
+      fillColor: b.edge ? '#9a9aa0' : DEFAULT_COLOR, fillOpacity: 1
+    }).addTo(state.busLayer);
+    m.bindTooltip(escapeHtml(b.ppu), { permanent: true, direction: 'top', offset: [0, -9], className: 'bus-tip' });
+    m.bindPopup(() => busPopup(b));
+    m.on('popupopen', () => { state.openBus = b.ppu; });
+    m.on('popupclose', () => { if (!state.redrawing && state.openBus === b.ppu) state.openBus = null; });
+    if (state.openBus === b.ppu) m.openPopup();
+    state.termMarkers[b.ppu] = m;
+  }
+  ensureTiles(map);
+  setTimeout(() => { map.invalidateSize(); ensureTiles(map); }, 50);
+}
+
+/* =====================================================================
+   BUSCAR PATENTE (v1.0.5.0)
+   Modo "Patente": se escribe una PPU (SPHF15, sphf-15…) y salen los buses que reportan GPS.
+   Al elegir uno, el sistema abre el recorrido (servicio y sentido) en el que va ese bus, con el
+   mapa acercado al bus (BUS_FOCUS_ZOOM) y su información abierta (la misma del click en el bus).
+   Si el bus no informa recorrido, se muestra solo en el mapa.
+   ===================================================================== */
+const BUS_FOCUS_ZOOM = 17;
+state.pendingDir = null; state.focusPpu = null; state.patPpu = null; state.busMarkers = {};
+
+function focusBusView(map){
+  if (!state.focusPpu) return false;
+  const b = currentBuses().find(x => x.ppu === state.focusPpu);
+  if (!b) return false;
+  map.setView([b.lat, b.lng], BUS_FOCUS_ZOOM, { animate: false });
+  return true;
+}
+
+// Todos los buses que reportan GPS (una fila por PPU)
+function liveBusList(){
+  const out = [], seen = new Set();
+  for (const f of (state.liveRaw || [])){
+    const p = f && f.properties, co = f && f.geometry && f.geometry.coordinates;
+    if (!p || !co) continue;
+    const ppu = String(p.license_plate == null ? '' : p.license_plate).trim();
+    const lat = +co[1], lng = +co[0];
+    if (!ppu || !isFinite(lat) || !isFinite(lng)) continue;
+    const k = normPpu(ppu);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const code = String(p.route_code == null ? '' : p.route_code).trim();
+    out.push({ ppu, lat, lng, speed: p.speed, ts: parseTs(p.timestamp), code, dir: busDir(p, code) });
+  }
+  return out;
+}
+
+function renderPatList(query){
+  const el = $('results');
+  el.innerHTML = '';
+  if (!state.liveRaw){
+    $('count').textContent = '';
+    el.innerHTML = '<div class="empty-list">Esperando datos del GPS…</div>';
+    return;
+  }
+  const all = liveBusList();
+  const qp = normPpu(query);
+  if (qp.length < 2){
+    $('count').textContent = all.length.toLocaleString('es') + ' buses reportando';
+    el.innerHTML = '<div class="empty-list">Escribe una patente para buscar.<br>Ejemplo: SPHF15</div>';
+    return;
+  }
+  const hits = all.filter(b => normPpu(b.ppu).includes(qp))
+    .sort((a, b) => (normPpu(b.ppu) === qp) - (normPpu(a.ppu) === qp) || a.ppu.localeCompare(b.ppu));
+  $('count').textContent = hits.length + (hits.length === 1 ? ' bus' : ' buses');
+  if (!hits.length){ el.innerHTML = '<div class="empty-list">No hay buses con esa patente reportando GPS ahora.</div>'; return; }
+  const frag = document.createDocumentFragment();
+  for (const b of hits.slice(0, 60)){
+    const info = state.registro && state.registro.get(normPpu(b.ppu));
+    const extra = info ? [info.type, info.tech, info.year].filter(x => x != null && String(x).trim() !== '').join(' · ') : '';
+    const dirTxt = b.dir === 'I' ? ' · Ida' : b.dir === 'R' ? ' · Regreso' : '';
+    const btn = document.createElement('button');
+    btn.className = 'route-item' + (normPpu(b.ppu) === state.patPpu ? ' active' : '');
+    btn.innerHTML =
+      '<span class="route-badge" style="background:#1a1a1c;color:#fff;min-width:78px">' + escapeHtml(b.ppu) + '</span>' +
+      '<span class="route-text"><span class="route-dest">' + escapeHtml(b.code || 'Sin recorrido informado') + dirTxt + '</span>' +
+      '<span class="route-sub">' + escapeHtml(extra || 'Sin información del bus') + '</span></span>';
+    btn.addEventListener('click', () => goToBus(b.ppu));
+    frag.appendChild(btn);
+  }
+  el.appendChild(frag);
+  if (hits.length > 60){
+    const more = document.createElement('div');
+    more.className = 'empty-list';
+    more.textContent = 'Mostrando 60 de ' + hits.length + '. Escribe más caracteres para acotar.';
+    el.appendChild(more);
+  }
+}
+
+// Lleva el bus a su recorrido: mismo detalle que Recorridos, con el mapa acercado al bus
+function goToBus(ppu){
+  const g = state.gtfs, tp = normPpu(ppu);
+  let best = null;
+  if (g && g.liveBy) for (const [key, b] of g.liveBy) for (const d of ['I', 'R', 'U']) for (const bus of b[d]){
+    if (normPpu(bus.ppu) !== tp) continue;
+    const e = g.entries.find(x => x.key === key);
+    if (!e) continue;
+    // se prefiere el servicio propio del bus (no el de apoyo ni el de contingencia)
+    const score = (bus.sup ? 2 : 0) + ((g.contEntries && g.contEntries.has(key)) ? 1 : 0);
+    if (!best || score < best.score) best = { e, bus, d, score };
+  }
+  if (!best){
+    const b = liveBusList().find(x => normPpu(x.ppu) === tp);
+    if (b) showBusAlone(b, true);
+    return;
+  }
+  setMode('routes');
+  state.openBus = best.bus.ppu;
+  state.focusPpu = best.bus.ppu;
+  state.pendingDir = best.d === 'I' ? '0' : best.d === 'R' ? '1' : null;
+  selectRoute(best.e.r.route_id, best.e);
+  const act = document.querySelector('#results .route-item.active');
+  if (act && act.scrollIntoView) act.scrollIntoView({ block: 'center' });
+}
+
+// Bus sin recorrido informado: solo se ve en el mapa
+async function showBusAlone(b, fresh){
+  state.patPpu = normPpu(b.ppu);
+  if (fresh) state.openBus = b.ppu;
+  document.querySelectorAll('#results .route-item').forEach(el => el.classList.toggle('active',
+    !!el.querySelector('.route-badge') && normPpu(el.querySelector('.route-badge').textContent) === state.patPpu));
+  $('detail-empty').hidden = true;
+  $('detail-inner').hidden = false;
+  const badge = $('detail-badge');
+  badge.textContent = 'PPU'; badge.style.background = '#1a1a1c'; badge.style.color = '#fff';
+  $('detail-title').textContent = b.ppu;
+  $('detail-sub').textContent = 'Sin recorrido informado';
+  $('tabs').innerHTML = ''; $('tabs').hidden = true;
+  $('variants').innerHTML = ''; $('variant-note').textContent = '';
+  $('meta').innerHTML = ''; $('stops-head').textContent = ''; $('stops').innerHTML = ''; $('stops').hidden = true;
+  if (typeof L === 'undefined'){
+    mapMessage('Cargando mapa…');
+    try { await libLeaflet; }
+    catch (e){ mapMessage('No se pudo cargar el mapa (se necesita conexión a internet).'); return; }
+  }
+  mapMessage('');
+  const map = ensureMap();
+  if (!map || state.patPpu !== normPpu(b.ppu)) return;
+  map.invalidateSize();
+  state.layer.clearLayers();
+  if (!state.busLayer) state.busLayer = L.layerGroup().addTo(map);
+  state.redrawing = true; state.busLayer.clearLayers(); state.redrawing = false;
+  if (fresh) map.setView([b.lat, b.lng], BUS_FOCUS_ZOOM, { animate: false });
+  const m = L.circleMarker([b.lat, b.lng], { radius: 9, color: '#1a1a1c', weight: 2, fillColor: DEFAULT_COLOR, fillOpacity: 1 }).addTo(state.busLayer);
+  m.bindTooltip(escapeHtml(b.ppu), { permanent: true, direction: 'top', offset: [0, -9], className: 'bus-tip' });
+  m.bindPopup(() => busPopup(b));
+  m.on('popupopen', () => { state.openBus = b.ppu; });
+  m.on('popupclose', () => { if (!state.redrawing && state.openBus === b.ppu) state.openBus = null; });
+  if (state.openBus === b.ppu) m.openPopup();
+  ensureTiles(map);
+  setTimeout(() => { map.invalidateSize(); ensureTiles(map); }, 50);
+}
+
+// En cada lectura del GPS: se actualiza la lista y el bus que se está viendo
+function patRefresh(){
+  if (state.mode !== 'pat') return;
+  const el = $('results'), top = el.scrollTop;
+  renderPatList($('search').value);
+  el.scrollTop = top;
+  if (state.patPpu && !$('detail-inner').hidden){
+    const b = liveBusList().find(x => normPpu(x.ppu) === state.patPpu);
+    if (b) showBusAlone(b, false);
+  }
+}
+
+// ---- cambio de modo (Recorridos / Terminales / Patente) ----
+function setMode(m){
+  if (state.mode === m) return;
+  state.mode = m;
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+  state.routeId = null; state.entryKey = null; state.label = null; state.sub = null;
+  state.dir = null; state.shapeId = null; state.liveOnly = false; state.openBus = null; state.termId = null;
+  state.patPpu = null; state.focusPpu = null; state.pendingDir = null;
+  $('detail-inner').hidden = true;
+  $('detail-empty').hidden = false;
+  if (state.busLayer) state.busLayer.clearLayers();
+  if (state.layer) state.layer.clearLayers();
+  mapMessage('');
+  const term = m === 'term', pat = m === 'pat';
+  $('empty-msg').textContent = term ? 'Selecciona un terminal de la lista' : pat ? 'Escribe una patente y selecciónala de la lista' : 'Selecciona un recorrido de la lista';
+  $('search').placeholder = term ? 'Buscar terminal' : pat ? 'Buscar patente (ej. SPHF15)' : 'Buscar recorrido o destino…';
+  $('term-filter').hidden = !term;
+  $('search').value = '';
+  renderResults('');
+}
+document.querySelectorAll('.mode-btn').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+$('term-only').addEventListener('change', e => { state.termOnly = e.target.checked; renderResults($('search').value); });
 
 // Inicio: cargar automáticamente el GTFS más reciente
 autoLoad();
