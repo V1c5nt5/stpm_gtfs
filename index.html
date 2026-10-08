@@ -281,6 +281,12 @@
     .layout{flex-direction:column}
     .sidebar{width:100%;border-right:none;border-bottom:1px solid #e3e3e6;max-height:42vh}
     .map-wrap{height:240px}
+    /* Ida / Regreso flotando sobre el mapa (si no, quedan fuera de pantalla bajo el mapa) */
+    .map-wrap > .tabs{
+      position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;margin:0;
+      background:rgba(255,255,255,.95);padding:4px;border-radius:10px;box-shadow:0 1px 6px rgba(0,0,0,.3);
+    }
+    .map-wrap > .tabs .tab{padding:9px 18px;font-size:14px;min-height:40px}
     #file-name{max-width:46vw;font-size:11px}
     header{padding:0 12px;gap:8px}
     header h1{font-size:13px}
@@ -1874,7 +1880,7 @@ async function drawMap(points, stops, color, stopsEl){
      5. recorrido del GTFS con ese nombre            → ese recorrido
      6. nada de lo anterior                          → recorrido sin informar en "SIN MATCH"
         (códigos TxTS, ej. T2TS, van dentro de la operadora UX: T2TS → "U2 - Su Bus")
-   El sentido sale de route_direction (o del sufijo I/R del código) y se muestra en Ida / Regreso.
+   El sentido sale del sufijo I/R del código (I = Ida, R = Regreso); route_direction solo si no hay sufijo.
    Todas las variantes del servicio (T1466 00I, T1466 03I…) caen en el mismo Ida/Regreso.
    ===================================================================== */
 /* version.json (data/version.json): { "version": "v1.0.4.1.10", "fecha": "07/10/26", "cambios": ["...", "..."] }
@@ -1954,14 +1960,14 @@ function stripVar(code){
 }
 
 function busDir(p, code){
-  // TxTS: 00I = Ida y 00R = Regreso, sin importar lo que diga route_direction
-  const sfx = String(code).match(/\s\d\d([IR])$/i);
-  if (sfx && TS_RE.test(stripVar(code))) return sfx[1].toUpperCase();
-  const d = lc(p.route_direction);
+  // La última letra del route_code manda SIEMPRE: ...I = Ida, ...R = Regreso.
+  // route_direction del GPS solo se usa si el código no trae sufijo (a veces viene con error).
+  const sfx = String(code == null ? '' : code).trim().match(/\d\d\s*([IR])$/i);
+  if (sfx) return sfx[1].toUpperCase();
+  const d = lc(p && p.route_direction);
   if (d.startsWith('reg')) return 'R';
   if (d.startsWith('ida')) return 'I';
-  const m = String(code).match(/\d\d([IR])$/i);
-  return m ? m[1].toUpperCase() : '';
+  return '';
 }
 
 // Índices del DECO para resolver el route_code de cada bus
@@ -2353,9 +2359,9 @@ function renderLiveOnly(route, fresh){
   const color = normalizeColor(route.route_color) || DEFAULT_COLOR;
   const b = (g.liveBy && g.liveBy.get(state.entryKey)) || { I: [], R: [], U: [] };
   const dirs = [];
-  if (b.I.length) dirs.push('0');
-  if (b.R.length) dirs.push('1');
-  if (!state.dir || !dirs.includes(state.dir)){ state.dir = dirs[0] || null; fresh = true; }
+  // Sin trazado no se sabe si es circular: si hay buses con sentido, se ofrecen Ida y Regreso
+  if (b.I.length || b.R.length) dirs.push('0', '1');
+  if (!state.dir || !dirs.includes(state.dir)){ state.dir = b.I.length || !b.R.length ? dirs[0] || null : '1'; fresh = true; }
   state.showAllDirs = dirs.length === 0;
   state.liveOnly = true;
   state.busColor = color;
@@ -3012,8 +3018,13 @@ function goToBus(ppu){
     if (normPpu(bus.ppu) !== tp) continue;
     const e = g.entries.find(x => x.key === key);
     if (!e) continue;
-    // se prefiere el servicio propio del bus (no el de apoyo ni el de contingencia)
-    const score = (bus.sup ? 2 : 0) + ((g.contEntries && g.contEntries.has(key)) ? 1 : 0);
+    // Prioridad: 0 = recorrido que el bus apoya (con trazado del GTFS) · 1 = servicio propio con GTFS ·
+    // 2 = copia en contingencia · 3 = recorrido sin informar (solo mapa) · 4 = no confirmado
+    const isCont = !!(g.contEntries && g.contEntries.has(key));
+    const score = (bus.sup && isCont && !e.r.__unc) ? 0
+      : (!e.r.__live && !isCont) ? 1
+      : (isCont && !e.r.__unc) ? 2
+      : e.r.__live ? 3 : 4;
     if (!best || score < best.score) best = { e, bus, d, score };
   }
   if (!best){
@@ -3102,6 +3113,18 @@ function setMode(m){
 }
 document.querySelectorAll('.mode-btn').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
 $('term-only').addEventListener('change', e => { state.termOnly = e.target.checked; renderResults($('search').value); });
+
+// En celular, las pestañas Ida/Regreso van dentro del mapa; en escritorio, sobre el detalle
+const mqMobile = window.matchMedia('(max-width:820px)');
+function placeTabs(){
+  const t = $('tabs'), mw = document.querySelector('.map-wrap'), body = document.querySelector('.detail-body');
+  if (!t || !mw || !body) return;
+  if (mqMobile.matches){ if (t.parentNode !== mw) mw.appendChild(t); }
+  else if (t.parentNode !== body) body.insertBefore(t, body.firstChild);
+}
+placeTabs();
+if (mqMobile.addEventListener) mqMobile.addEventListener('change', placeTabs);
+else if (mqMobile.addListener) mqMobile.addListener(placeTabs);
 
 // Inicio: cargar automáticamente el GTFS más reciente
 autoLoad();
