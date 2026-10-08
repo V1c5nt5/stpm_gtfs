@@ -1,14 +1,15 @@
 {
-  "version": "v1.0.4.1.10",
+  "version": "v1.0.6.0",
   "fecha": "07/10/26",
   "cambios": [
-    "Mejoras en el mapa visualizador de buses.",
-    "Estamos trabajando en incorporar un sistema para buscar patentes (PPU) especificas. Ejemplo: SPHF15"
+    "Nuevo módulo Terminales: revisa qué patentes (PPU) están dentro de cada terminal de la red, ordenadas de más a menos buses, con el polígono del terminal en el mapa.",
+    "Nuevo buscador de patentes (PPU): al buscar una patente, el sistema abre el recorrido del bus y lo muestra de cerca en el mapa, con su información. Ejemplo: SPHF15"
   ],
   "archivos": {
     "gtfs": "GTFS_20261003.zip",
     "deco": "DECO_VIGENTES_20260829.zip",
     "registro": "REGISTRO_04_10_26.json",
-    "contingencia": "contingencia.json"
+    "contingencia": "contingencia.json",
+    "terminales": "GeoJson.geojson"
   }
 }
