@@ -247,7 +247,10 @@
     {
       "servicio": "F12c",
       "apoyo": true,
-      "apoyan": []
+      "apoyan": [
+                        { "codigo": "T1094 00I", "sentido": "Ida" },
+        { "codigo": "T1094 00R", "sentido": "Retorno" }
+      ]
     },
     {
       "servicio": "F20",
