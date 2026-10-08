@@ -27,7 +27,10 @@
     {
       "servicio": "410",
       "apoyo": true,
-      "apoyan": []
+      "apoyan": [
+        {"codigo": "T1291 00I", "sentido": "Ida"},
+        {"codigo": "T1291 00I", "sentido": "Retorno"}
+      ]
     },
     {
       "servicio": "410e",
@@ -71,7 +74,9 @@
     {
       "servicio": "B07",
       "apoyo": true,
-      "apoyan": []
+      "apoyan": [
+        {"codigo": "T399 00I", "sentido": "Ida"}
+      ]
     },
     {
       "servicio": "B08",
@@ -95,12 +100,16 @@
     {
       "servicio": "B13",
       "apoyo": true,
-      "apoyan": []
+      "apoyan": [
+        { "codigo": "T1890 00I", "sentido": "Ida" }
+      ]
     },
     {
       "servicio": "B17",
       "apoyo": true,
-      "apoyan": []
+      "apoyan": [
+        {"codigo": "T1396 00I", "sentido": "Ida"}
+      ]
     },
     {
       "servicio": "B18",
@@ -183,12 +192,16 @@
     {
       "servicio": "C18",
       "apoyo": true,
-      "apoyan": []
+      "apoyan": [
+        {"codigo": "T1196 00I", "sentido": "Ida"}
+      ]
     },
     {
       "servicio": "F02",
       "apoyo": true,
-      "apoyan": []
+      "apoyan": [
+        {"codigo": "T1690 00I", "sentido": "Ida"}
+      ]
     },
     {
       "servicio": "F03c",
@@ -203,7 +216,10 @@
     {
       "servicio": "F06",
       "apoyo": true,
-      "apoyan": []
+      "apoyan": [
+        {"codigo": "T1290 00R", "sentido": "Retorno"},
+        {"codigo": "T1290 00R", "sentido": "Ida"}
+      ]
     },
     {
       "servicio": "F09",
