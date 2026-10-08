@@ -5,112 +5,166 @@
       "servicio": "102",
       "apoyo": true,
       "apoyan": [
-        {
-          "codigo": "T1996 00I",
-          "sentido": "Ida"
-        },
-        {
-          "codigo": "T1996 00R",
-          "sentido": "Retorno"
-        }
+        { "codigo": "T1996 00I", "sentido": "Ida" },
+        { "codigo": "T1996 00R", "sentido": "Retorno" }
       ]
     },
     {
       "servicio": "105",
       "apoyo": true,
       "apoyan": [
-        {
-          "codigo": "T293 00R",
-          "sentido": "Retorno"
-        },
-        {
-          "codigo": "T293 00I",
-          "sentido": "Ida"
-        }
+        { "codigo": "T293 00I", "sentido": "Ida" },
+        { "codigo": "T293 00R", "sentido": "Retorno" }
       ]
     },
     {
       "servicio": "105c",
       "apoyo": true,
       "apoyan": [
-        {
-          "codigo": "294x",
-          "sentido": "Retorno"
-        }
+        { "codigo": "294x", "sentido": "Retorno" }
+      ]
+    },
+    {
+      "servicio": "712",
+      "apoyo": true,
+      "apoyan": [
+        { "codigo": "T1997 06I", "sentido": "Ida" },
+        { "codigo": "T1997 06R", "sentido": "Retorno" }
+      ]
+    },
+    {
+      "servicio": "B02",
+      "apoyo": true,
+      "apoyan": [
+        { "codigo": "T1195 00I", "sentido": "Ida" }
       ]
     },
     {
       "servicio": "B03",
       "apoyo": true,
       "apoyan": [
-        {
-          "codigo": "T1590 00I",
-          "sentido": "Ida"
-        }
+        { "codigo": "T1590 00I", "sentido": "Ida" }
+      ]
+    },
+    {
+      "servicio": "B04",
+      "apoyo": true,
+      "apoyan": [
+        { "codigo": "T1393 00I", "sentido": "Ida" }
+      ]
+    },
+    {
+      "servicio": "B08",
+      "apoyo": true,
+      "apoyan": [
+        { "codigo": "T1892 00I", "sentido": "Ida" }
       ]
     },
     {
       "servicio": "B09",
       "apoyo": true,
       "apoyan": [
-        {
-          "codigo": "T1597 00I",
-          "sentido": "Ida"
-        }
+        { "codigo": "T1597 00I", "sentido": "Ida" }
       ]
     },
     {
-      "servicio": "B29",
+      "servicio": "B18",
       "apoyo": true,
       "apoyan": [
-        {
-          "codigo": "T1599 00I",
-          "sentido": "Ida"
-        }
+        { "codigo": "T1193 00I", "sentido": "Ida" },
+        { "codigo": "T1193 00R", "sentido": "Retorno" }
+      ]
+    },
+    {
+      "servicio": "B18e",
+      "apoyo": true,
+      "apoyan": [
+        { "codigo": "394", "sentido": "Regreso" }
+      ]
+    },
+    {
+      "servicio": "B19",
+      "apoyo": true,
+      "apoyan": [
+        { "codigo": "T1394 00R", "sentido": "Retorno" }
       ]
     },
     {
       "servicio": "B20",
       "apoyo": true,
       "apoyan": [
-        {
-          "codigo": "T1598 00I",
-          "sentido": "Ida"
-        }
+        { "codigo": "T1598 00I", "sentido": "Ida" }
       ]
     },
     {
-      "servicio": "B46",
-      "apoyo": false,
+      "servicio": "B25",
+      "apoyo": true,
       "apoyan": [
-        {
-          "codigo": "T1826 00I",
-          "sentido": "Ida"
-        }
+        { "codigo": "T1194 00I", "sentido": "Ida" }
       ]
     },
-        {
-      "servicio": "C10e",
-      "apoyo": false,
+    {
+      "servicio": "B26",
+      "apoyo": true,
       "apoyan": [
-        {
-          "codigo": "T1310 C2 00R",
-          "sentido": "Retorno"
-        }
+        { "codigo": "T395 06I", "sentido": "Ida" }
+      ]
+    },
+    {
+      "servicio": "B29",
+      "apoyo": true,
+      "apoyan": [
+        { "codigo": "T1599 00I", "sentido": "Ida" }
+      ]
+    },
+    {
+      "servicio": "B32",
+      "apoyo": true,
+      "apoyan": [
+        { "codigo": "T1893 00I", "sentido": "Ida" }
+      ]
+    },
+    {
+      "servicio": "B33",
+      "apoyo": true,
+      "apoyan": [
+        { "codigo": "T1395 00I", "sentido": "Ida" }
+      ]
+    },
+    {
+      "servicio": "B36",
+      "apoyo": true,
+      "apoyan": [
+        { "codigo": "T396 00I", "sentido": "Ida" }
+      ]
+    },
+    {
+      "servicio": "B37",
+      "apoyo": true,
+      "apoyan": [
+        { "codigo": "T397 00I", "sentido": "Ida" }
       ]
     },
     {
       "servicio": "F09",
       "apoyo": true,
       "apoyan": [
-        {
-          "codigo": "T1096 00I",
-          "sentido": "Ida"
-        },
-        {
-          "codigo": "T1096 00R",
-          "sentido": "Retorno"
-        }
+        { "codigo": "T1096 00I", "sentido": "Ida" },
+        { "codigo": "T1096 00R", "sentido": "Retorno" }
+      ]
+    },
+    {
+      "servicio": "B46",
+      "apoyo": false,
+      "apoyan": [
+        { "codigo": "T1826 00I", "sentido": "Ida" }
+      ]
+    },
+    {
+      "servicio": "C10e",
+      "apoyo": false,
+      "apoyan": [
+        { "codigo": "T1310 C2 00R", "sentido": "Retorno" }
       ]
     }
   ]
