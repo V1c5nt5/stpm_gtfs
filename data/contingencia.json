@@ -185,7 +185,7 @@
       "servicio": "F06",
       "apoyan": [
         {"codigo": "T1290 00R", "sentido": "Retorno"},
-        {"codigo": "T1290 00R", "sentido": "Ida"}
+        {"codigo": "T1290 00I", "sentido": "Ida"}
       ]
     },
     {
