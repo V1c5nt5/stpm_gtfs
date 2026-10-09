@@ -1,0 +1,29 @@
+{
+  "_ayuda": "Códigos que NO son apoyo: el servicio no aparece en PLAN CONTINGENCIA RED, solo en el listado normal de su operadora. Útil para DECOs que aún no se publican. servicio = CODIGO_USUARIO. codigos[].codigo = código del bus (T1826 00I). sentido = Ida o Regreso. Opcionales: operadora (ej. U18; por defecto sale del código), activo:false para desactivar sin borrar.",
+  "codigos": [
+    {
+      "servicio": "219e",
+      "apoyan": [
+        {"codigo": "T1819 E2 00R", "sentido": "Retorno"}
+      ]
+    },
+    {
+      "servicio": "B46",
+      "apoyan": [
+        {"codigo": "T1826 00I", "sentido": "Ida"}
+      ]
+    },
+    {
+      "servicio": "C10e",
+      "apoyan": [
+        {"codigo": "T1310 C2 00R", "sentido": "Retorno"}
+      ]
+    },
+    {
+      "servicio": "405c",
+      "apoyan": [
+        {"codigo": "T1235 C3 00R", "sentido": "Retorno"}
+      ]
+    }
+  ]
+}
