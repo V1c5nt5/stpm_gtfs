@@ -1182,8 +1182,9 @@ function renderResults(query){
   const g = state.gtfs;
   if (!g) return;
   const q = norm(query);
-  const inCont = e => e.sub === NO_MATCH && g.contCodes && (g.contCodes.has(lc(e.label)) || g.contCodes.has(lc(e.r.route_short_name)));
-  const base = g.entries.filter(e => !inCont(e));
+  // Solo se consideran los códigos de servicios en contingencia que SÍ tienen buses de apoyo en ruta
+  const inCont = e => e.sub === NO_MATCH && g.contCodesActive && (g.contCodesActive.has(lc(e.label)) || g.contCodesActive.has(lc(e.r.route_short_name)));
+  const base = g.entries.filter(e => !inCont(e) && !contHidden(g, e));
   const list = q ? base.filter(e => e.search.includes(q)) : base;
 
   const uniq = new Set(list.map(e => e.r.route_id)).size;
@@ -2140,9 +2141,17 @@ function dropLive(g, e){
   const j = g.routes.indexOf(e.r); if (j >= 0) g.routes.splice(j, 1);
 }
 
+// Entrada de PLAN CONTINGENCIA RED sin buses de apoyo en ruta: no se muestra en la categoría
+// (el servicio queda solo como recorrido normal). Los "no confirmados" sin recorrido base se mantienen.
+function contHidden(g, e){
+  if (!e || !e.cont) return false;
+  if (e.r.__unc && !(e.cont.baseEntries && e.cont.baseEntries.length)) return false;
+  return !(g.contActive && g.contActive.has(e.key));
+}
+
 // Si el recorrido que se estaba viendo ya no existe en la lista, se limpia el detalle
 function ensureSelection(g){
-  if (!state.entryKey || g.entries.some(e => e.key === state.entryKey)) return;
+  if (!state.entryKey || g.entries.some(e => e.key === state.entryKey && !contHidden(g, e))) return;
   state.routeId = null; state.entryKey = null; state.label = null; state.sub = null;
   state.dir = null; state.shapeId = null; state.liveOnly = false; state.openBus = null;
   $('detail-inner').hidden = true;
@@ -2213,6 +2222,7 @@ function applyLive(feats){
     b[d || 'U'].push(bus);
   };
   let total = 0;
+  const contActive = new Set();   // claves de contingencia que tienen al menos un bus de apoyo
   g.__liveAdded = false;
 
   for (const f of feats){
@@ -2232,7 +2242,16 @@ function applyLive(feats){
 
     // Apoyo de contingencia: el bus también se ve en el servicio apoyado (en amarillo)
     const sl = d && g.contSupBy && g.contSupBy.get(lc(stripVar(code)));
-    if (sl) for (const s of sl) if (s.dir === d) put(s.key, s.en, Object.assign({}, bus, { sup: true }));
+    if (sl) for (const s of sl) if (s.dir === d){ put(s.key, s.en, Object.assign({}, bus, { sup: true })); contActive.add(s.key); }
+  }
+
+  // Códigos (servicio + apoyo) de las contingencias activas: solo ellos se sacan del listado normal
+  g.contActive = contActive;
+  g.contCodesActive = new Set();
+  if (g.contEntries) for (const ce of g.contEntries.values()){
+    if (!contActive.has(ce.key)) continue;
+    g.contCodesActive.add(lc(ce.cont.servicio));
+    for (const c of ce.cont.codes) g.contCodesActive.add(lc(stripVar(c)));
   }
 
   // Servicio en contingencia = sus propios buses + los buses de apoyo
@@ -2260,7 +2279,7 @@ function applyLive(feats){
   ensureSelection(g);
 
   // Se vuelve a dibujar la lista solo si cambió algo (nuevos/quitados o inyecciones con buses)
-  const sig = [...by.keys()].filter(k => g.injKeys.has(k)).sort().join('\n');
+  const sig = [...by.keys()].filter(k => g.injKeys.has(k)).sort().join('\n') + '\n#cont:' + [...contActive].sort().join(',');
   if (g.__liveAdded || removed || sig !== g.liveSig){
     g.liveSig = sig;
     const el = $('results'), top = el.scrollTop;
