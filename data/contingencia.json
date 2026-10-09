@@ -1,6 +1,14 @@
 {
   "_ayuda": "Servicios en PLAN CONTINGENCIA RED. Todo lo que está en este archivo se muestra siempre como apoyo (no hace falta el campo apoyo). servicio = CODIGO_USUARIO del servicio apoyado. apoyan[].codigo = código del bus que apoya (T1590 o T1590 00I). sentido = Ida o Regreso (obligatorio). Opcionales: en (Ida/Regreso, pestaña del servicio apoyado; por defecto = sentido), operadora (ej. U15; por defecto sale del código), activo:false para desactivar un servicio sin borrarlo.",
   "apoyos": [
+        {
+      "servicio": "L5",
+      "apoyan": [
+        {"codigo": "T1990 00I", "sentido": "Ida"},
+        {"codigo": "T1690 00I", "sentido": "Ida"},
+        {"codigo": "510x2", "sentido": "Ida"}
+      ]
+    },
     {
       "servicio": "102",
       "apoyan": [
