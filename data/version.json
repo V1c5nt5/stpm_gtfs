@@ -1,9 +1,10 @@
 {
-  "version": "v1.0.6.0",
-  "fecha": "07/10/26",
+  "version": "v1.0.6.10",
+  "fecha": "08/10/26",
   "cambios": [
-    "Nuevo módulo Terminales: revisa qué patentes (PPU) están dentro de cada terminal de la red, ordenadas de más a menos buses, con el polígono del terminal en el mapa.",
-    "Nuevo buscador de patentes (PPU): al buscar una patente, el sistema abre el recorrido del bus y lo muestra de cerca en el mapa, con su información. Ejemplo: SPHF15"
+    "Correciones en el sistema de identificación de recorridos.",
+    "Mejor visibilidad de los buses en celular, y se incorpora de manera visible, la posibilidad de cambiar Ida y Regreso en celular.",
+    "Los recorridos que se encuentren en el Plan Contingencia, y que operen con normalidad (Sin apoyo) , no aparecerán dentro de la categoría propia."
   ],
   "archivos": {
     "gtfs": "GTFS_20261003.zip",

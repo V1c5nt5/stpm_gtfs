@@ -62,11 +62,6 @@
       ]
     },
     {
-      "servicio": "B02n",
-      "apoyo": true,
-      "apoyan": []
-    },
-    {
       "servicio": "B03",
       "apoyo": true,
       "apoyan": [
