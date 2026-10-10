@@ -1,10 +1,11 @@
 {
-  "version": "v1.0.6.10",
-  "fecha": "08/10/26",
+  "version": "v1.0.6.50",
+  "fecha": "10/10/26",
   "cambios": [
-    "Correciones en el sistema de identificación de recorridos.",
-    "Mejor visibilidad de los buses en celular, y se incorpora de manera visible, la posibilidad de cambiar Ida y Regreso en celular.",
-    "Los recorridos que se encuentren en el Plan Contingencia, y que operen con normalidad (Sin apoyo) , no aparecerán dentro de la categoría propia."
+    "Si un recorrido solo tiene Ida o solo Regreso, la opción de cambiar de sentido desaparece.",
+    "Los buses eléctricos ahora muestran un ⚡ centrado dentro de su círculo, con relleno verde y borde negro.",
+    "En vez de Ida y Regreso, ahora se muestra el destino de cada sentido bajo el título DIRECCIÓN, también en la información de los buses. Se eliminaron textos innecesarios y repetidos.",
+    "La información de paraderos ya no se muestra directo: aparece un botón 'Ver paraderos' junto a los horarios."
   ],
   "archivos": {
     "gtfs": "GTFS_20261003.zip",
