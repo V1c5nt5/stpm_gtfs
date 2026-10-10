@@ -169,12 +169,32 @@
   .detail-body::-webkit-scrollbar{width:10px}
   .detail-body::-webkit-scrollbar-thumb{background:#d0d0d5;border-radius:5px;border:3px solid #f5f5f7}
 
-  .tabs{display:flex;gap:6px;margin-bottom:14px}
+  .tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+  .tabs-label{flex:0 0 100%;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:#9a9aa0;font-weight:600;margin-bottom:-1px}
+  .tabs .tab{flex:0 1 auto;max-width:100%}
+  .btn-stops{
+    padding:7px 15px;border:1px solid #d6d6db;background:#fff;border-radius:7px;font-size:13px;font-weight:500;
+    cursor:pointer;font-family:inherit;color:#1a1a1c;transition:all .12s;text-align:left;
+  }
+  .btn-stops:hover{background:#f5f5f7}
+  .btn-stops.on{background:#1a1a1c;color:#fff;border-color:#1a1a1c}
+  .collapsed{display:none !important}
+  /* Con los paraderos ocultos el panel queda fijo: solo se mueven el mapa y la lista de recorridos
+     (si el contenido no cabe en pantalla, se deja el scroll para no perder el acceso a los botones) */
+  .detail-body.static{overflow:hidden;padding-bottom:16px;overscroll-behavior:none;touch-action:none}
   .tab{
     padding:7px 15px;border:1px solid #d6d6db;background:#fff;border-radius:7px;
     font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;color:#6b6b72;
     transition:all .12s;
+    min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;   /* destinos largos */
   }
+  /* ⚡ al centro del círculo de los buses VPE */
+  /* ⚡ al centro del círculo del bus: SVG centrado en un círculo de 16px (= relleno del bus), recortado para que no se salga */
+  .bus-vpe{
+    display:flex;align-items:center;justify-content:center;box-sizing:border-box;
+    width:16px;height:16px;border-radius:50%;overflow:hidden;background:none;border:none;
+  }
+  .bus-vpe svg{display:block;width:16px;height:16px}
   .tab:hover{background:#f5f5f7}
   .tab.active{background:#1a1a1c;color:#fff;border-color:#1a1a1c}
 
@@ -282,8 +302,9 @@
     .sidebar{width:100%;border-right:none;border-bottom:1px solid #e3e3e6;max-height:42vh}
     .map-wrap{height:240px}
     /* Ida / Regreso flotando sobre el mapa (si no, quedan fuera de pantalla bajo el mapa) */
+    .map-wrap > .tabs .tabs-label{text-align:center}
     .map-wrap > .tabs{
-      position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;margin:0;
+      position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;margin:0;max-width:calc(100% - 20px);
       background:rgba(255,255,255,.95);padding:4px;border-radius:10px;box-shadow:0 1px 6px rgba(0,0,0,.3);
     }
     .map-wrap > .tabs .tab{padding:9px 18px;font-size:14px;min-height:40px}
@@ -1286,6 +1307,7 @@ function selectRoute(routeId, entry){
   state.sub = entry ? entry.sub : null;
   state.dir = state.pendingDir || null; state.pendingDir = null;
   state.shapeId = null;
+  state.showStops = false;
 
   document.querySelectorAll('.route-item').forEach(el => {
     el.classList.toggle('active', state.entryKey ? el.dataset.key === state.entryKey : el.dataset.id === routeId);
@@ -1523,6 +1545,7 @@ function renderDetail(){
   $('detail-empty').hidden = true;
   $('detail-inner').hidden = false;
   $('stops').hidden = false;
+  setStopsCollapsed(false);
   const cont = curCont();
 
   const color = normalizeColor(route.route_color) || DEFAULT_COLOR;
@@ -1585,11 +1608,12 @@ function renderDetail(){
   const tabsEl = $('tabs');
   tabsEl.innerHTML = '';
   if (dirs.length > 1){
-    const labels = { '0': 'Ida', '1': 'Regreso' };
+    addTabsLabel(tabsEl);
     for (const d of dirs){
       const b = document.createElement('button');
       b.className = 'tab' + (d === state.dir ? ' active' : '');
-      b.textContent = labels[d] || ('Sentido ' + d);
+      b.textContent = dirHeadsign(g, route.route_id, d) || dirFallback(d) || ('Sentido ' + d);
+      b.title = b.textContent;
       b.addEventListener('click', () => {
         state.dir = d; state.shapeId = null; renderDetail();
       });
@@ -1692,11 +1716,7 @@ function renderDetail(){
       b.addEventListener('click', () => { state.shapeId = sid; renderDetail(); });
       variantsEl.appendChild(b);
     });
-    const isCurrentNormal = hasMainVariant && currentShape === mainVariantId;
-    const bits = [isCurrentNormal ? 'Horario Normal' : variantName(curInfo.all)];
-    if (repTrip.trip_headsign) bits.push('hacia ' + repTrip.trip_headsign);
-    bits.push(nStops(repTrip) + ' paraderos');
-    noteEl.textContent = bits.join(' · ');
+    // v1.0.6.20: se quita el texto "Horario Normal · hacia X · N paraderos" (el destino va en las pestañas)
   }
 
   const serviceIds = new Set();
@@ -1722,21 +1742,33 @@ function renderDetail(){
       '</div>'
     ).join('');
 
-  if (dirs.length > 1 || circular) {
+  // v1.0.6.20: "Sentido" con el destino se quita (ya está en las pestañas DIRECCIÓN); solo queda "Circular"
+  if (circular) {
     metaHtml +=
       '<div class="meta-block">' +
         '<span class="meta-label">Sentido</span>' +
-        '<span class="meta-value">' +
-          (dirs.length === 1
-            ? 'Circular'
-            : (state.dir === '0' ? 'Ida' : 'Regreso')) +
-        '</span>' +
+        '<span class="meta-value">Circular</span>' +
       '</div>';
   }
 
-  $('meta').innerHTML = metaHtml;
-
   const sts = g.stopTimesByTrip.get(repTrip.trip_id) || [];
+
+  // Botón para ver/ocultar la información de paraderos (por defecto oculta)
+  metaHtml +=
+    '<div class="meta-block">' +
+      '<span class="meta-label">Paraderos</span>' +
+      '<button type="button" class="btn-stops" id="btn-stops"></button>' +
+    '</div>';
+
+  $('meta').innerHTML = metaHtml;
+  const btnStops = $('btn-stops');
+  const syncStops = () => {
+    setStopsCollapsed(!state.showStops);
+    btnStops.classList.toggle('on', !!state.showStops);
+    btnStops.textContent = state.showStops ? 'Ocultar paraderos' : 'Ver paraderos (' + sts.length + ')';
+  };
+  btnStops.addEventListener('click', () => { state.showStops = !state.showStops; syncStops(); });
+  syncStops();
 
   $('stops-head').textContent = 'Paraderos · ' + sts.length + ' en total';
 
@@ -2161,7 +2193,7 @@ function ensureSelection(g){
 }
 
 // route_code de un bus → entradas de la lista donde debe aparecer
-function resolveEntries(g, rawCode){
+function resolveEntries(g, rawCode, noCreate){
   const code = String(rawCode == null ? '' : rawCode).trim();
   if (!code) return [];
   const c = lc(code), base = stripVar(code), p = lc(base), tok = p.split(/\s+/)[0];
@@ -2205,7 +2237,7 @@ function resolveEntries(g, rawCode){
       if (es){ push(es); break; }
     }
   }
-  if (!out.length) push([liveEntry(g, base || code)]);
+  if (!out.length && !noCreate) push([liveEntry(g, base || code)]);
   return out;
 }
 
@@ -2328,10 +2360,102 @@ function busInfoHtml(ppu){
   return '<div class="bus-info">' + rows.map(r => '<div><span>' + r[0] + '</span> ' + escapeHtml(String(r[1])) + '</div>').join('') + '</div>';
 }
 
-function busPopup(b){
+/* ---- Dirección (destino) en vez de "Ida" / "Regreso" ----
+   Se usa el trip_headsign más frecuente del sentido en el GTFS (ej. 426: "La Dehesa" / "Pudahuel").
+   Si el recorrido no tiene destino en el GTFS (sin registro, sin trazado) se mantiene Ida / Regreso. */
+function addTabsLabel(tabsEl){
+  const l = document.createElement('span');
+  l.className = 'tabs-label'; l.textContent = 'DIRECCIÓN';
+  tabsEl.appendChild(l);
+}
+// Lista de paraderos plegable (el botón vive en el recuadro de datos del recorrido)
+function setStopsCollapsed(v){
+  $('stops-head').classList.toggle('collapsed', !!v);
+  $('stops').classList.toggle('collapsed', !!v);
+  updateStatic();
+}
+function updateStatic(){
+  const b = document.querySelector('.detail-body');
+  if (!b) return;
+  b.classList.remove('static');
+  if (!$('stops').classList.contains('collapsed')) return;
+  b.scrollTop = 0;
+  b.classList.add('static');
+  if (b.scrollHeight > b.clientHeight + 1) b.classList.remove('static');
+}
+window.addEventListener('resize', updateStatic);
+function dirHeadsign(g, routeId, d){
+  if (!g || !g.tripsByRoute) return '';
+  g.__hs = g.__hs || new Map();
+  const k = routeId + '|' + d;
+  if (g.__hs.has(k)) return g.__hs.get(k);
+  const mine = new Map(), other = new Map();
+  let hasMine = false;
+  for (const t of (g.tripsByRoute.get(routeId) || [])){
+    const td = t.direction_id === '1' ? '1' : '0';
+    if (td === d) hasMine = true;
+    const hs = String(t.trip_headsign == null ? '' : t.trip_headsign).trim();
+    if (!hs) continue;
+    const m = td === d ? mine : other;
+    m.set(hs, (m.get(hs) || 0) + 1);
+  }
+  // Recorrido de un solo sentido (circular): se usa el destino que tenga
+  const src = (hasMine || !other.size) ? mine : other;
+  let best = '', n = 0;
+  for (const [hs, c] of src) if (c > n){ best = hs; n = c; }
+  g.__hs.set(k, best);
+  return best;
+}
+const dirFallback = d => d === '0' ? 'Ida' : d === '1' ? 'Regreso' : '';
+
+// Texto del sentido de un bus: "Pudahuel" (o Ida/Regreso si no se conoce el destino)
+// rid = recorrido que se está viendo; tabDir = sentido ('0'/'1') a usar en vez del propio del bus
+function busDirText(b, rid, tabDir){
+  const d = tabDir || (b.dir === 'I' ? '0' : b.dir === 'R' ? '1' : '');
+  if (!d) return '';
+  const g = state.gtfs;
+  let hs = '';
+  if (g){
+    if (rid) hs = dirHeadsign(g, rid, d);
+    if (!hs && b.code && g.entriesByUser){
+      g.__dn = g.__dn || new Map();
+      const k = b.code + '|' + d;
+      if (g.__dn.has(k)) hs = g.__dn.get(k);
+      else {
+        for (const e of resolveEntries(g, b.code, true)){
+          if (e.r.__live) continue;
+          hs = dirHeadsign(g, e.r.route_id, d);
+          if (hs) break;
+        }
+        g.__dn.set(k, hs);
+      }
+    }
+  }
+  return hs || dirFallback(d);
+}
+
+// Buses VPE (eléctricos): ⚡ al centro del círculo. Va en la misma capa, así se borra con los buses.
+function isVpe(ppu){
+  const info = state.registro && state.registro.get(normPpu(ppu));
+  return !!(info && /\bVPE\b/i.test(String(info.tech == null ? '' : info.tech)));
+}
+const VPE_COLOR = '#00B140';   // Pantone 354 C (C81 M0 Y92 K0)
+// Todos los buses llevan borde negro. Relleno: color del servicio/apoyo; si es VPE, verde.
+const busColors = (ppu, fill) => ({ color: '#1a1a1c', fillColor: isVpe(ppu) ? VPE_COLOR : fill });
+// Rayo ⚡ dibujado (mismo en todos los dispositivos): su centro coincide con el del viewBox
+const VPE_BOLT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 1.8 4.4 13.6h6.1l-1.3 8.6 9.9-12.6h-6.3z" fill="#FFD60A" stroke="#1a1a1c" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+function addVpeIcon(b, lyr){
+  if (!isVpe(b.ppu)) return;
+  L.marker([b.lat, b.lng], {
+    icon: L.divIcon({ className: 'bus-vpe', html: VPE_BOLT, iconSize: [16, 16], iconAnchor: [8, 8] }),
+    interactive: false, keyboard: false
+  }).addTo(lyr);
+}
+
+function busPopup(b, rid, tabDir){
   const t = b.ts ? new Date(b.ts).toLocaleTimeString('es-CL') : '';
-  const dirTxt = b.dir === 'I' ? 'Ida' : b.dir === 'R' ? 'Regreso' : '';
-  return '<b>' + escapeHtml(b.ppu) + '</b><br>' + escapeHtml(b.code) + (dirTxt ? ' · ' + dirTxt : '') + (b.sup ? ' · Apoyo' : '') +
+  const dirTxt = busDirText(b, rid, tabDir);
+  return '<b>' + escapeHtml(b.ppu) + '</b><br>' + escapeHtml(b.code) + (dirTxt ? ' · ' + escapeHtml(dirTxt) : '') + (b.sup ? ' · Apoyo' : '') +
     ((b.speed != null && b.speed !== '') ? '<br>' + Math.round(+b.speed) + ' km/h' : '') +
     (t ? (b.speed != null ? ' · ' : '<br>') + t : '') +
     busInfoHtml(b.ppu);
@@ -2348,16 +2472,17 @@ function drawBuses(fit){
   state.redrawing = false;
 
   const bs = currentBuses();
+  const rid = state.routeId;
   const pts = [];
   state.busMarkers = {};
   for (const b of bs){
     pts.push([b.lat, b.lng]);
-    const m = L.circleMarker([b.lat, b.lng], {
-      radius: 9, color: '#1a1a1c', weight: 2,
-      fillColor: b.sup ? CONT_COLOR : (state.busColor || DEFAULT_COLOR), fillOpacity: 1
-    }).addTo(lyr);
+    const m = L.circleMarker([b.lat, b.lng], Object.assign({
+      radius: 9, weight: 2, fillOpacity: 1
+    }, busColors(b.ppu, b.sup ? CONT_COLOR : (state.busColor || DEFAULT_COLOR)))).addTo(lyr);
     m.bindTooltip(escapeHtml(b.ppu), { permanent: true, direction: 'top', offset: [0, -9], className: 'bus-tip' });
-    m.bindPopup(() => busPopup(b));   // se arma al abrir: toma el registro aunque haya cargado después
+    addVpeIcon(b, lyr);
+    m.bindPopup(() => busPopup(b, rid, b.sup && state.dir ? state.dir : null));   // se arma al abrir: toma el registro aunque haya cargado después
     m.on('popupopen', () => { state.openBus = b.ppu; });
     m.on('popupclose', () => { if (!state.redrawing && state.openBus === b.ppu) state.openBus = null; });
     if (state.openBus === b.ppu) m.openPopup();   // la actualización no cierra el popup abierto
@@ -2375,23 +2500,28 @@ function drawBuses(fit){
 // Detalle de un recorrido sin trazado (sin informar / inyección sin GTFS): solo los buses
 function renderLiveOnly(route, fresh){
   const g = state.gtfs;
+  setStopsCollapsed(false);
   const color = normalizeColor(route.route_color) || DEFAULT_COLOR;
   const b = (g.liveBy && g.liveBy.get(state.entryKey)) || { I: [], R: [], U: [] };
   const dirs = [];
-  // Sin trazado no se sabe si es circular: si hay buses con sentido, se ofrecen Ida y Regreso
-  if (b.I.length || b.R.length) dirs.push('0', '1');
-  if (!state.dir || !dirs.includes(state.dir)){ state.dir = b.I.length || !b.R.length ? dirs[0] || null : '1'; fresh = true; }
+  // Solo se ofrecen Ida y Regreso si hay buses en los dos sentidos; con uno solo no hay nada que elegir
+  if (b.I.length && b.R.length) dirs.push('0', '1');
+  if (!state.dir || !dirs.includes(state.dir)){
+    const nd = dirs.length ? (b.I.length ? '0' : '1') : null;
+    if (nd !== state.dir) fresh = true;
+    state.dir = nd;
+  }
   state.showAllDirs = dirs.length === 0;
   state.liveOnly = true;
   state.busColor = color;
 
   const tabsEl = $('tabs');
   tabsEl.innerHTML = '';
-  const labels = { '0': 'Ida', '1': 'Regreso' };
+  if (dirs.length) addTabsLabel(tabsEl);
   for (const d of dirs){
     const t = document.createElement('button');
     t.className = 'tab' + (d === state.dir ? ' active' : '');
-    t.textContent = labels[d];
+    t.textContent = dirHeadsign(g, route.route_id, d) || dirFallback(d);
     t.addEventListener('click', () => { state.dir = d; renderLiveOnly(route, true); });
     tabsEl.appendChild(t);
   }
@@ -2885,8 +3015,8 @@ function selectTerminal(id){
 function termBusRow(b){
   const info = state.registro && state.registro.get(normPpu(b.ppu));
   const extra = info ? [info.type, info.tech, info.year].filter(x => x != null && String(x).trim() !== '').join(' · ') : '';
-  const dirTxt = b.dir === 'I' ? 'Ida' : b.dir === 'R' ? 'Regreso' : '';
-  const svc = b.code ? escapeHtml(b.code) + (dirTxt ? ' · ' + dirTxt : '') : 'Sin servicio informado';
+  const dirTxt = busDirText(b);
+  const svc = b.code ? escapeHtml(b.code) + (dirTxt ? ' · ' + escapeHtml(dirTxt) : '') : 'Sin servicio informado';
   const t = b.ts ? new Date(b.ts).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
   const spd = (b.speed != null && b.speed !== '' && isFinite(+b.speed)) ? Math.round(+b.speed) + ' km/h' : '';
   return '<span class="bus-ppu">' + escapeHtml(b.ppu) + '</span>' +
@@ -2909,6 +3039,7 @@ function renderTermDetail(fresh){
   $('detail-sub').textContent = (t.reg ? 'Punto de regulación · ' : 'Terminal · ') + (n === 1 ? '1 bus' : n + ' buses') + ' dentro del recinto';
   $('tabs').innerHTML = ''; $('tabs').hidden = true;
   $('variants').innerHTML = ''; $('variant-note').textContent = '';
+  setStopsCollapsed(false);
   const svcs = new Set(t.buses.filter(b => b.code).map(b => stripVar(b.code))).size;
   const at = state.termAt ? new Date(state.termAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
   const blk = (l, v) => '<div class="meta-block"><span class="meta-label">' + l + '</span><span class="meta-value">' + v + '</span></div>';
@@ -2950,11 +3081,11 @@ async function drawTermMap(t, fit){
   state.redrawing = true; state.busLayer.clearLayers(); state.redrawing = false;
   state.termMarkers = {};
   for (const b of t.buses){
-    const m = L.circleMarker([b.lat, b.lng], {
-      radius: 9, color: '#1a1a1c', weight: 2,
-      fillColor: b.edge ? '#9a9aa0' : DEFAULT_COLOR, fillOpacity: 1
-    }).addTo(state.busLayer);
+    const m = L.circleMarker([b.lat, b.lng], Object.assign({
+      radius: 9, weight: 2, fillOpacity: 1
+    }, busColors(b.ppu, b.edge ? '#9a9aa0' : DEFAULT_COLOR))).addTo(state.busLayer);
     m.bindTooltip(escapeHtml(b.ppu), { permanent: true, direction: 'top', offset: [0, -9], className: 'bus-tip' });
+    addVpeIcon(b, state.busLayer);
     m.bindPopup(() => busPopup(b));
     m.on('popupopen', () => { state.openBus = b.ppu; });
     m.on('popupclose', () => { if (!state.redrawing && state.openBus === b.ppu) state.openBus = null; });
@@ -3024,7 +3155,8 @@ function renderPatList(query){
   for (const b of hits.slice(0, 60)){
     const info = state.registro && state.registro.get(normPpu(b.ppu));
     const extra = info ? [info.type, info.tech, info.year].filter(x => x != null && String(x).trim() !== '').join(' · ') : '';
-    const dirTxt = b.dir === 'I' ? ' · Ida' : b.dir === 'R' ? ' · Regreso' : '';
+    const dt = busDirText(b);
+    const dirTxt = dt ? ' · ' + escapeHtml(dt) : '';
     const btn = document.createElement('button');
     btn.className = 'route-item' + (normPpu(b.ppu) === state.patPpu ? ' active' : '');
     btn.innerHTML =
@@ -3088,6 +3220,7 @@ async function showBusAlone(b, fresh){
   $('detail-sub').textContent = 'Sin recorrido informado';
   $('tabs').innerHTML = ''; $('tabs').hidden = true;
   $('variants').innerHTML = ''; $('variant-note').textContent = '';
+  setStopsCollapsed(false);
   $('meta').innerHTML = ''; $('stops-head').textContent = ''; $('stops').innerHTML = ''; $('stops').hidden = true;
   if (typeof L === 'undefined'){
     mapMessage('Cargando mapa…');
@@ -3102,8 +3235,9 @@ async function showBusAlone(b, fresh){
   if (!state.busLayer) state.busLayer = L.layerGroup().addTo(map);
   state.redrawing = true; state.busLayer.clearLayers(); state.redrawing = false;
   if (fresh) map.setView([b.lat, b.lng], BUS_FOCUS_ZOOM, { animate: false });
-  const m = L.circleMarker([b.lat, b.lng], { radius: 9, color: '#1a1a1c', weight: 2, fillColor: DEFAULT_COLOR, fillOpacity: 1 }).addTo(state.busLayer);
+  const m = L.circleMarker([b.lat, b.lng], Object.assign({ radius: 9, weight: 2, fillOpacity: 1 }, busColors(b.ppu, DEFAULT_COLOR))).addTo(state.busLayer);
   m.bindTooltip(escapeHtml(b.ppu), { permanent: true, direction: 'top', offset: [0, -9], className: 'bus-tip' });
+  addVpeIcon(b, state.busLayer);
   m.bindPopup(() => busPopup(b));
   m.on('popupopen', () => { state.openBus = b.ppu; });
   m.on('popupclose', () => { if (!state.redrawing && state.openBus === b.ppu) state.openBus = null; });
