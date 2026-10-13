@@ -2181,6 +2181,77 @@ function contHidden(g, e){
   return !(g.contActive && g.contActive.has(e.key));
 }
 
+// ---- Filtros de descarte del PLAN CONTINGENCIA RED (con buses de apoyo en ruta) ----
+//  1) Un bus de apoyo solo cuenta si está a <= CONT_RADIO_M metros del recorrido del servicio apoyado.
+//  2) Si quedan menos de CONT_MIN_APOYOS buses de apoyo válidos, la contingencia se descarta:
+//     el servicio se ve solo con sus buses normales y sale de la categoría.
+const CONT_RADIO_M = 5000;
+const CONT_MIN_APOYOS = 2;
+
+// Geometría (polilíneas + bbox) del servicio apoyado: shapes de todos sus viajes (cache por entrada).
+// null = no hay geometría disponible (no se puede verificar el radio).
+function contGeom(g, ce){
+  const c = ce.cont;
+  if (c.geom !== undefined) return c.geom;
+  const lines = [], seenShape = new Set();
+  const addLine = pts => { if (pts.length) lines.push(pts); };
+  for (const be of (c.baseEntries || [])){
+    for (const t of (g.tripsByRoute.get(be.r.route_id) || [])){
+      let sid = t.shape_id;
+      if (sid == null) continue;
+      if (!g.shapesById.has(sid)) sid = String(sid).trim();
+      if (!sid || seenShape.has(sid)) continue;
+      const arr = g.shapesById.get(sid);
+      if (!arr) continue;
+      seenShape.add(sid);
+      addLine(arr.filter(q => isFinite(q[1]) && isFinite(q[2])).map(q => [q[1], q[2]]));
+    }
+  }
+  if (!lines.length){   // sin shapes: se usan los paraderos de sus viajes
+    const seenStop = new Set(), stopsPts = [];
+    for (const be of (c.baseEntries || [])){
+      for (const t of (g.tripsByRoute.get(be.r.route_id) || [])){
+        for (const st of (g.stopTimesByTrip.get(t.trip_id) || [])){
+          if (seenStop.has(st[1])) continue;
+          seenStop.add(st[1]);
+          const sp = g.stopsById && g.stopsById.get(st[1]);
+          if (sp && isFinite(+sp.stop_lat) && isFinite(+sp.stop_lon)) stopsPts.push([+sp.stop_lat, +sp.stop_lon]);
+        }
+      }
+    }
+    for (const q of stopsPts) lines.push([q]);
+  }
+  if (!lines.length) return (c.geom = null);
+  let a = Infinity, b = Infinity, cc = -Infinity, d = -Infinity;
+  for (const ln of lines) for (const q of ln){
+    if (q[0] < a) a = q[0]; if (q[0] > cc) cc = q[0];
+    if (q[1] < b) b = q[1]; if (q[1] > d) d = q[1];
+  }
+  return (c.geom = { lines, bbox: [a, b, cc, d] });
+}
+
+// ¿El punto está a <= maxM metros de alguna de las polilíneas? (aproximación plana, suficiente a esta escala)
+function nearGeom(geom, lat, lng, maxM){
+  const b = geom.bbox, cosL = Math.cos(lat * Math.PI / 180);
+  const dLa = maxM / 110540, dLo = maxM / (111320 * cosL);
+  if (lat < b[0] - dLa || lat > b[2] + dLa || lng < b[1] - dLo || lng > b[3] + dLo) return false;
+  const kx = 111320 * cosL, ky = 110540, max2 = maxM * maxM;
+  for (const ln of geom.lines){
+    let px = (ln[0][1] - lng) * kx, py = (ln[0][0] - lat) * ky;
+    if (ln.length === 1){ if (px * px + py * py <= max2) return true; continue; }
+    for (let i = 1; i < ln.length; i++){
+      const qx = (ln[i][1] - lng) * kx, qy = (ln[i][0] - lat) * ky;
+      const dx = qx - px, dy = qy - py, l2 = dx * dx + dy * dy;
+      let t = l2 ? -(px * dx + py * dy) / l2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      const ex = px + t * dx, ey = py + t * dy;
+      if (ex * ex + ey * ey <= max2) return true;
+      px = qx; py = qy;
+    }
+  }
+  return false;
+}
+
 // Si el recorrido que se estaba viendo ya no existe en la lista, se limpia el detalle
 function ensureSelection(g){
   if (!state.entryKey || g.entries.some(e => e.key === state.entryKey && !contHidden(g, e))) return;
@@ -2254,7 +2325,8 @@ function applyLive(feats){
     b[d || 'U'].push(bus);
   };
   let total = 0;
-  const contActive = new Set();   // claves de contingencia que tienen al menos un bus de apoyo
+  const contActive = new Set();   // claves de contingencia con >= CONT_MIN_APOYOS buses de apoyo válidos (dentro del radio)
+  const supCand = new Map();      // clave de contingencia → { ids:Set de buses distintos, list:[{ en, bus }] }
   g.__liveAdded = false;
 
   for (const f of feats){
@@ -2274,7 +2346,24 @@ function applyLive(feats){
 
     // Apoyo de contingencia: el bus también se ve en el servicio apoyado (en amarillo)
     const sl = d && g.contSupBy && g.contSupBy.get(lc(stripVar(code)));
-    if (sl) for (const s of sl) if (s.dir === d){ put(s.key, s.en, Object.assign({}, bus, { sup: true })); contActive.add(s.key); }
+    if (sl) for (const s of sl) if (s.dir === d){
+      // Descarte 1: el bus de apoyo debe estar a <= CONT_RADIO_M del recorrido del servicio apoyado
+      const ce = g.contEntries.get(s.key);
+      const geom = ce ? contGeom(g, ce) : null;
+      if (geom && !nearGeom(geom, lat, lng, CONT_RADIO_M)) continue;
+      let c = supCand.get(s.key);
+      if (!c){ c = { ids: new Set(), list: [] }; supCand.set(s.key, c); }
+      c.ids.add(bus.ppu !== '—' ? bus.ppu : lat + ',' + lng);
+      c.list.push({ en: s.en, bus: Object.assign({}, bus, { sup: true }) });
+    }
+  }
+
+  // Descarte 2: con menos de CONT_MIN_APOYOS buses de apoyo válidos la contingencia no se activa
+  // (el servicio se ve solo con sus buses normales)
+  for (const [key, c] of supCand){
+    if (c.ids.size < CONT_MIN_APOYOS) continue;
+    contActive.add(key);
+    for (const x of c.list) put(key, x.en, x.bus);
   }
 
   // Códigos (servicio + apoyo) de las contingencias activas: solo ellos se sacan del listado normal
@@ -2288,6 +2377,7 @@ function applyLive(feats){
 
   // Servicio en contingencia = sus propios buses + los buses de apoyo
   if (g.contEntries) for (const ce of g.contEntries.values()){
+    if (!contActive.has(ce.key)) continue;
     const seen = new Set();
     for (const be of ce.cont.baseEntries){
       const b = by.get(be.key);
@@ -2618,6 +2708,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && st
                 Si el servicio existe en el GTFS se usa toda su información (paraderos, horarios, GPS);
                 si no existe, se muestran solo los buses en tiempo real.
    - activo   : (opcional) false para desactivar un servicio sin borrarlo
+   Descartes automáticos (ver CONT_RADIO_M / CONT_MIN_APOYOS): un bus de apoyo a más de 5 km del recorrido no cuenta;
+   si quedan menos de 2 buses de apoyo válidos, el servicio sale del PLAN CONTINGENCIA RED y se ve solo con sus buses normales.
    ===================================================================== */
 const CONT_EVERY = 120000;
 const dirTxt = v => { const t = lc(v); return t.startsWith('i') ? 'I' : t.startsWith('r') ? 'R' : ''; };
