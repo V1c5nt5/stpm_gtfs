@@ -177,8 +177,8 @@
     {
       "servicio": "F05",
       "apoyan": [
-        {"codigo": "T1090 00R", "sentido": "Retorno"},
-        {"codigo": "T1090 00I", "sentido": "Ida"}
+        {"codigo": "T1295 00R", "sentido": "Retorno"},
+        {"codigo": "T1295 00I", "sentido": "Ida"}
       ]
     },
     {
