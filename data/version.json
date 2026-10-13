@@ -1,11 +1,8 @@
 {
-  "version": "v1.0.6.50",
-  "fecha": "10/10/26",
+  "version": "v1.0.6.50.1",
+  "fecha": "13/10/26",
   "cambios": [
-    "Si un recorrido solo tiene Ida o solo Regreso, la opción de cambiar de sentido desaparece.",
-    "Los buses eléctricos ahora muestran un ⚡ centrado dentro de su círculo, con relleno verde y borde negro.",
-    "En vez de Ida y Regreso, ahora se muestra el destino de cada sentido bajo el título DIRECCIÓN, también en la información de los buses. Se eliminaron textos innecesarios y repetidos.",
-    "La información de paraderos ya no se muestra directo: aparece un botón 'Ver paraderos' junto a los horarios."
+    "Mejora en la detección del Plan Contingencia Red."
   ],
   "archivos": {
     "gtfs": "GTFS_20261003.zip",
