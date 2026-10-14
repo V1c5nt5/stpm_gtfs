@@ -177,15 +177,15 @@
     {
       "servicio": "F05",
       "apoyan": [
-        {"codigo": "T1295 00R", "sentido": "Retorno"},
-        {"codigo": "T1295 00I", "sentido": "Ida"}
+        {"codigo": "T1097 00R", "sentido": "Retorno"},
+        {"codigo": "T1097 00I", "sentido": "Ida"}
       ]
     },
     {
       "servicio": "F06",
       "apoyan": [
-        {"codigo": "T1290 00R", "sentido": "Retorno"},
-        {"codigo": "T1290 00I", "sentido": "Ida"}
+        {"codigo": "T1297 00R", "sentido": "Retorno"},
+        {"codigo": "T1297 00I", "sentido": "Ida"}
       ]
     },
     {
@@ -212,8 +212,8 @@
     {
       "servicio": "F20",
       "apoyan": [
-        {"codigo": "T1092 00I", "sentido": "Ida"},
-        {"codigo": "T1092 00R", "sentido": "Retorno"}
+        {"codigo": "T1298 00I", "sentido": "Ida"},
+        {"codigo": "T1298 00R", "sentido": "Retorno"}
       ]
     }
   ]
