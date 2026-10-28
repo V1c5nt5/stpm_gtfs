@@ -6,7 +6,7 @@
   ],
   "archivos": {
     "gtfs": "GTFS_20261003.zip",
-    "deco": "DECO_VIGENTES_20260829.zip",
+    "deco": "DECO_VIGENTES_202610221129.csv",
     "registro": "REGISTRO_04_10_26.json",
     "contingencia": "contingencia.json",
     "terminales": "GeoJson.geojson"
