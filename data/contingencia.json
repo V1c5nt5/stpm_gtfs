@@ -22,19 +22,6 @@
       ]
     },
     {
-      "servicio": "410",
-      "apoyan": [
-        {"codigo": "T1291 00I", "sentido": "Ida"},
-        {"codigo": "T1291 00I", "sentido": "Retorno"}
-      ]
-    },
-    {
-      "servicio": "410e",
-      "apoyan": [
-        {"codigo": "T1091 00I", "sentido": "Ida"}
-      ]
-    },
-    {
       "servicio": "712",
       "apoyan": [
         {"codigo": "T1997 06I", "sentido": "Ida"},
