@@ -21487,7 +21487,7 @@
     "type": "B2",
     "tech": "VPE",
     "year": 2020,
-    "model": "Marcopolo Torino New G7 LE"
+    "model": "King Long XMQ6127E"
   },
   "SGPW36": {
     "unit": "900026",
@@ -22726,7 +22726,7 @@
     "type": "A2",
     "tech": "VPE",
     "year": 2023,
-    "model": "Marcopolo Torino Midi"
+    "model": "Foton E-Bus U10"
   },
   "SKPH76": {
     "unit": "900026",
@@ -29089,21 +29089,21 @@
     "type": "B2",
     "tech": "EURO VI",
     "year": 2023,
-    "model": "Foton E-Bus U12 SC"
+    "model": "Marcopolo Torino New G7 LE"
   },
   "SKPL36": {
     "unit": "900028",
     "type": "B2",
     "tech": "EURO VI",
     "year": 2023,
-    "model": "Foton E-Bus U12 SC"
+    "model": "Marcopolo Torino New G7 LE"
   },
   "SKPL37": {
     "unit": "900028",
     "type": "B2",
     "tech": "EURO VI",
     "year": 2023,
-    "model": "Foton E-Bus U12 SC"
+    "model": "Marcopolo Torino New G7 LE"
   },
   "SLGS86": {
     "unit": "900028",
@@ -29705,14 +29705,14 @@
     "type": "B2",
     "tech": "VPE",
     "year": 2023,
-    "model": "Caio Mondego II"
+    "model": "Foton E-Bus U12 SC"
   },
   "SLPC58": {
     "unit": "900028",
     "type": "B2",
     "tech": "VPE",
     "year": 2023,
-    "model": "Caio Mondego II"
+    "model": "Foton E-Bus U12 SC"
   },
   "VHDF74": {
     "unit": "900028",
